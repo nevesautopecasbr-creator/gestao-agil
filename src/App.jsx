@@ -3,12 +3,11 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import LoginPage from '@/pages/Login';
-import { useLocation } from 'react-router-dom';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -18,11 +17,23 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
   : <>{children}</>;
 
-const AuthenticatedApp = () => {
-  const { isLoadingAuth, authError, navigateToLogin, user } = useAuth();
-  const location = useLocation();
+/** Evita open redirect: só caminhos relativos na mesma origem. */
+function safePostLoginRedirect(raw) {
+  if (!raw || typeof raw !== 'string') return '/';
+  try {
+    const decoded = decodeURIComponent(raw);
+    if (decoded.startsWith('/') && !decoded.startsWith('//')) return decoded;
+  } catch {
+    /* ignore */
+  }
+  return '/';
+}
 
-  // Show loading spinner while checking app public settings or auth
+const AuthenticatedApp = () => {
+  const { isLoadingAuth, authError, isAuthenticated } = useAuth();
+  const location = useLocation();
+  const isLoginPath = location.pathname === '/login';
+
   if (isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
@@ -31,23 +42,32 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Handle authentication errors
-  if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    } else if (authError.type === 'auth_required') {
-      // Redirect to login automatically
-      if (location.pathname !== '/login') {
-        navigateToLogin();
-        return null;
-      }
-    }
+  if (authError?.type === 'user_not_registered') {
+    return <UserNotRegisteredError />;
   }
 
-  // Render the main app
+  if (!isAuthenticated) {
+    if (isLoginPath) {
+      return <LoginPage />;
+    }
+    const next = `${location.pathname}${location.search}`;
+    return (
+      <Navigate
+        to={`/login?redirect=${encodeURIComponent(next)}`}
+        replace
+      />
+    );
+  }
+
+  if (isLoginPath) {
+    const params = new URLSearchParams(location.search);
+    const to = safePostLoginRedirect(params.get('redirect'));
+    return <Navigate to={to} replace />;
+  }
+
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/" element={
         <LayoutWrapper currentPageName={mainPageKey}>
           <MainPage />

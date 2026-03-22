@@ -12,7 +12,6 @@ import {
   Clock,
   Receipt,
   BarChart3,
-  Settings,
   LogOut,
   Menu,
   X,
@@ -20,6 +19,14 @@ import {
   FileText
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const adminMenuItems = [
   { name: 'Áreas de Atuação', icon: Briefcase, page: 'ServiceAreas' },
@@ -69,8 +76,9 @@ export default function Layout({ children, currentPageName }) {
       ? consultantMenuItems 
       : clientMenuItems;
 
-  const handleLogout = () => {
-    base44.auth.logout();
+  const handleLogout = async () => {
+    await base44.auth.logout();
+    window.location.assign('/login');
   };
 
   return (
@@ -110,20 +118,47 @@ export default function Layout({ children, currentPageName }) {
 
           {/* User Menu */}
           <div className="flex items-center gap-4">
-            <div className="relative">
-              <button className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 transition-all">
-                <Avatar className="w-8 h-8">
-                  <AvatarFallback className="bg-[#1e3a5f] text-white text-sm">
-                    {user?.full_name?.charAt(0) || 'U'}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="hidden md:block text-left">
-                  <p className="text-sm font-medium text-slate-900">{user?.full_name || 'Usuário'}</p>
-                  <p className="text-xs text-slate-500 capitalize">{userType}</p>
-                </div>
-                <ChevronDown className="w-4 h-4 text-slate-500" />
-              </button>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 transition-all outline-none focus-visible:ring-2 focus-visible:ring-[#1e3a5f] focus-visible:ring-offset-2"
+                  aria-label="Menu do usuário"
+                >
+                  <Avatar className="w-8 h-8">
+                    <AvatarFallback className="bg-[#1e3a5f] text-white text-sm">
+                      {user?.full_name?.charAt(0) || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="hidden md:block text-left">
+                    <p className="text-sm font-medium text-slate-900">{user?.full_name || 'Usuário'}</p>
+                    <p className="text-xs text-slate-500 capitalize">{userType}</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 z-[60]">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{user?.full_name || 'Usuário'}</p>
+                    {user?.email && (
+                      <p className="text-xs leading-none text-muted-foreground truncate">{user.email}</p>
+                    )}
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="cursor-pointer text-rose-600 focus:text-rose-600 focus:bg-rose-50"
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    handleLogout();
+                  }}
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {/* Mobile Menu Toggle */}
             <button 
