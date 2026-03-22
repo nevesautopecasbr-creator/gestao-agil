@@ -1,0 +1,102 @@
+/**
+ * pages.config.js - Page routing configuration
+ * 
+ * This file is AUTO-GENERATED. Do not add imports or modify PAGES manually.
+ * Pages are auto-registered when you create files in the ./pages/ folder.
+ * 
+ * THE ONLY EDITABLE VALUE: mainPage
+ * This controls which page is the landing page (shown when users visit the app).
+ * 
+ * Example file structure:
+ * 
+ *   import HomePage from './pages/HomePage';
+ *   import Dashboard from './pages/Dashboard';
+ *   import Settings from './pages/Settings';
+ *   
+ *   export const PAGES = {
+ *       "HomePage": HomePage,
+ *       "Dashboard": Dashboard,
+ *       "Settings": Settings,
+ *   }
+ *   
+ *   export const pagesConfig = {
+ *       mainPage: "HomePage",
+ *       Pages: PAGES,
+ *   };
+ * 
+ * Example with Layout (wraps all pages):
+ *
+ *   import Home from './pages/Home';
+ *   import Settings from './pages/Settings';
+ *   import __Layout from './Layout.jsx';
+ *
+ *   export const PAGES = {
+ *       "Home": Home,
+ *       "Settings": Settings,
+ *   }
+ *
+ *   export const pagesConfig = {
+ *       mainPage: "Home",
+ *       Pages: PAGES,
+ *       Layout: __Layout,
+ *   };
+ *
+ * To change the main page from HomePage to Dashboard, use find_replace:
+ *   Old: mainPage: "HomePage",
+ *   New: mainPage: "Dashboard",
+ *
+ * The mainPage value must match a key in the PAGES object exactly.
+ */
+import ClientDocuments from './pages/ClientDocuments';
+import ClientPortal from './pages/ClientPortal';
+import Clients from './pages/Clients';
+import ConsultantDashboard from './pages/ConsultantDashboard';
+import ConsultantExpenses from './pages/ConsultantExpenses';
+import ConsultantProjects from './pages/ConsultantProjects';
+import ConsultantTimeEntries from './pages/ConsultantTimeEntries';
+import Consultants from './pages/Consultants';
+import Dashboard from './pages/Dashboard';
+import Expenses from './pages/Expenses';
+import Financial from './pages/Financial';
+import HourlyRates from './pages/HourlyRates';
+import ProjectDetail from './pages/ProjectDetail';
+import ProjectFinancial from './pages/ProjectFinancial';
+import ProjectReports from './pages/ProjectReports';
+import Projects from './pages/Projects';
+import ProjectsKanban from './pages/ProjectsKanban';
+import Reports from './pages/Reports';
+import ServiceAreas from './pages/ServiceAreas';
+import Services from './pages/Services';
+import Settings from './pages/Settings';
+import __Layout from './Layout.jsx';
+
+
+export const PAGES = {
+    "ClientDocuments": ClientDocuments,
+    "ClientPortal": ClientPortal,
+    "Clients": Clients,
+    "ConsultantDashboard": ConsultantDashboard,
+    "ConsultantExpenses": ConsultantExpenses,
+    "ConsultantProjects": ConsultantProjects,
+    "ConsultantTimeEntries": ConsultantTimeEntries,
+    "Consultants": Consultants,
+    "Dashboard": Dashboard,
+    "Expenses": Expenses,
+    "Financial": Financial,
+    "HourlyRates": HourlyRates,
+    "ProjectDetail": ProjectDetail,
+    "ProjectFinancial": ProjectFinancial,
+    "ProjectReports": ProjectReports,
+    "Projects": Projects,
+    "ProjectsKanban": ProjectsKanban,
+    "Reports": Reports,
+    "ServiceAreas": ServiceAreas,
+    "Services": Services,
+    "Settings": Settings,
+}
+
+export const pagesConfig = {
+    mainPage: "Dashboard",
+    Pages: PAGES,
+    Layout: __Layout,
+};
