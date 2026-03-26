@@ -5,6 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Upload, FileCheck, X } from "lucide-react";
 import { base44 } from '@/api/base44Client';
+import CpfCnpjInput from "@/components/ui/CpfCnpjInput";
+import PhoneInput from "@/components/ui/PhoneInput";
+import { validateCPFOrCNPJ, validateEmail, validatePhone } from "@/lib/validators";
 
 const emptyForm = {
   company_name: '',
@@ -76,6 +79,22 @@ export default function ClientForm({ open, onClose, client, onSave, loading }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!validateCPFOrCNPJ(form.document)) {
+      alert('Informe um CPF/CNPJ válido no campo de documento.');
+      return;
+    }
+    if (!validatePhone(form.phone)) {
+      alert('Informe um telefone válido para o contato principal.');
+      return;
+    }
+    if (!validatePhone(form.legal_rep_phone)) {
+      alert('Informe um telefone válido para o representante legal.');
+      return;
+    }
+    if (!validateEmail(form.email)) {
+      alert('Informe um e-mail válido.');
+      return;
+    }
     onSave(form);
   };
 
@@ -101,13 +120,18 @@ export default function ClientForm({ open, onClose, client, onSave, loading }) {
             </div>
 
             <div>
-              <Label>CNPJ *</Label>
-              <Input value={form.document} onChange={set('document')} required placeholder="00.000.000/0000-00" />
+              <Label>CPF/CNPJ *</Label>
+              <CpfCnpjInput
+                value={form.document}
+                onChange={set('document')}
+                required
+                placeholder="000.000.000-00"
+              />
             </div>
 
             <div>
               <Label>Telefone *</Label>
-              <Input value={form.phone} onChange={set('phone')} required placeholder="(00) 00000-0000" />
+              <PhoneInput value={form.phone} onChange={set('phone')} required placeholder="(00) 00000-0000" />
             </div>
 
             <div className="col-span-2">
@@ -136,12 +160,17 @@ export default function ClientForm({ open, onClose, client, onSave, loading }) {
 
             <div>
               <Label>Telefone do Representante *</Label>
-              <Input value={form.legal_rep_phone} onChange={set('legal_rep_phone')} required placeholder="(00) 00000-0000" />
+              <PhoneInput
+                value={form.legal_rep_phone}
+                onChange={set('legal_rep_phone')}
+                required
+                placeholder="(00) 00000-0000"
+              />
             </div>
 
             <div>
               <Label>E-mail *</Label>
-              <Input type="email" value={form.email} onChange={set('email')} required />
+              <input type="email" value={form.email} onChange={set('email')} required className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm" />
             </div>
 
             <div className="col-span-2 border-t pt-4">

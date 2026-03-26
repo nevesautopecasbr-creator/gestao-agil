@@ -5,10 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import PhoneInput from "@/components/ui/PhoneInput";
 import { Loader2, Plus, X, ChevronDown, ChevronUp } from "lucide-react";
 import { SERVICE_AREAS, getSubareasWithDetails } from '../utils/serviceAreas';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
+import { validateEmail, validatePhone } from "@/lib/validators";
 
 export default function ConsultantForm({ open, onClose, consultant, onSave, loading }) {
   const [form, setForm] = useState({
@@ -92,6 +94,14 @@ export default function ConsultantForm({ open, onClose, consultant, onSave, load
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!validateEmail(form.email)) {
+      alert('Informe um e-mail válido.');
+      return;
+    }
+    if (form.phone && !validatePhone(form.phone)) {
+      alert('Informe um telefone válido (com DDD).');
+      return;
+    }
     onSave(form);
   };
 
@@ -120,7 +130,7 @@ export default function ConsultantForm({ open, onClose, consultant, onSave, load
             </div>
             <div>
               <Label>Telefone</Label>
-              <Input value={form.phone} onChange={(e) => setForm({...form, phone: e.target.value})} />
+              <PhoneInput value={form.phone} onChange={(v) => setForm({...form, phone: v})} />
             </div>
             <div>
               <Label>Especialidade *</Label>

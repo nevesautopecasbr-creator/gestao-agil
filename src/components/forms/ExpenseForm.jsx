@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Upload } from "lucide-react";
 import { base44 } from '@/api/base44Client';
+import MoneyInput from "@/components/ui/MoneyInput";
+import { parseMoneyBRToNumber, validateISODate, validateMoney } from "@/lib/validators";
 
 const CATEGORIES = {
   travel: "Deslocamento",
@@ -73,7 +75,16 @@ export default function ExpenseForm({ open, onClose, expense, onSave, loading, p
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const base = { ...form, amount: parseFloat(form.amount) || 0, status: 'to_pay' };
+    if (!validateMoney(form.amount, { min: 0 })) {
+      alert('Informe um valor (R$) válido para a despesa.');
+      return;
+    }
+    if (!validateISODate(form.date)) {
+      alert('Informe uma data válida para a despesa.');
+      return;
+    }
+    const amountNumber = parseMoneyBRToNumber(form.amount) || 0;
+    const base = { ...form, amount: amountNumber, status: 'to_pay' };
     if (!isRecurring || expense) {
       // Single save (edit or non-recurring)
       onSave(base);
@@ -121,13 +132,11 @@ export default function ExpenseForm({ open, onClose, expense, onSave, loading, p
             </div>
             <div>
               <Label>Valor (R$) *</Label>
-              <Input 
-                type="number"
-                step="0.01"
-                value={form.amount} 
-                onChange={(e) => setForm({...form, amount: e.target.value})}
-                required
-              />
+                    <MoneyInput
+                      value={form.amount}
+                      onChange={(v) => setForm({ ...form, amount: v })}
+                      required
+                    />
             </div>
             <div>
               <Label>Data *</Label>
@@ -235,7 +244,7 @@ export default function ExpenseForm({ open, onClose, expense, onSave, loading, p
                   </div>
                   <div className="col-span-2 text-xs text-slate-500 bg-slate-50 rounded p-2">
                     Serão criadas <strong>{recurringMonths}</strong> despesas mensais de{' '}
-                    <strong>R$ {(parseFloat(form.amount) || 0).toFixed(2)}</strong> cada,
+                    <strong>R$ {(parseMoneyBRToNumber(form.amount) || 0).toFixed(2)}</strong> cada,
                     vencendo todo dia <strong>{form.date ? new Date(form.date + 'T12:00:00').getDate() : '?'}</strong> por{' '}
                     {recurringMonths} {recurringMonths === 1 ? 'mês' : 'meses'}.
                   </div>

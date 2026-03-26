@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Upload, Loader2, FileText, CheckCircle, AlertCircle } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { SERVICE_AREAS, getSubareas } from '../utils/serviceAreas';
+import { validateISODate } from "@/lib/validators";
 
 export default function PublicPoliciesForm({ open, onClose, consultants, onSave, loading }) {
   const [consultantId, setConsultantId] = useState('');
@@ -62,6 +63,13 @@ export default function PublicPoliciesForm({ open, onClose, consultants, onSave,
 
   const handleCreate = () => {
     if (!consultantId || !parsedData) return;
+    if (startDate && !validateISODate(startDate)) { alert('Informe uma Data Inicial válida.'); return; }
+    if (endDate && !validateISODate(endDate)) { alert('Informe uma Data Final válida.'); return; }
+    if (startDate && endDate) {
+      const s = new Date(startDate + 'T12:00:00');
+      const e = new Date(endDate + 'T12:00:00');
+      if (e.getTime() < s.getTime()) { alert('A Data Final deve ser maior ou igual à Data Inicial.'); return; }
+    }
 
     const phases = parsedData.phases || [];
     const sortedPhases = [...phases].sort((a, b) => (a.phase_number || 0) - (b.phase_number || 0));

@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import MoneyInput from "@/components/ui/MoneyInput";
 import ExpenseForm from '@/components/forms/ExpenseForm';
+import { parseMoneyBRToNumber, validateISODate, validateMoney } from "@/lib/validators";
 
 function ConfirmReceivableModal({ open, onClose, onConfirm, amount }) {
   const [description, setDescription] = useState('Valor produzido aprovado');
@@ -18,7 +20,7 @@ function ConfirmReceivableModal({ open, onClose, onConfirm, amount }) {
 
   const handleInstallmentCount = (count) => {
     const n = Math.max(1, Math.min(24, parseInt(count) || 1));
-    const perInstallment = (amount / n).toFixed(2);
+    const perInstallment = Number((amount / n).toFixed(2));
     setInstallments(Array.from({ length: n }, (_, i) => ({
       due_date: installments[i]?.due_date || '',
       amount: perInstallment,
@@ -29,10 +31,10 @@ function ConfirmReceivableModal({ open, onClose, onConfirm, amount }) {
     setInstallments(prev => prev.map((inst, i) => i === index ? { ...inst, [field]: value } : inst));
   };
 
-  const totalInstallments = installments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const totalInstallments = installments.reduce((s, i) => s + (parseMoneyBRToNumber(i.amount) || 0), 0);
   const isValid = paymentType === 'integral'
-    ? !!dueDate
-    : installments.every(i => i.due_date && parseFloat(i.amount) > 0);
+    ? validateISODate(dueDate)
+    : installments.every(i => validateISODate(i.due_date) && validateMoney(i.amount, { min: 0.01 }));
 
   const handleConfirm = () => {
     if (paymentType === 'integral') {
@@ -41,7 +43,7 @@ function ConfirmReceivableModal({ open, onClose, onConfirm, amount }) {
       onConfirm(installments.map((inst, i) => ({
         description: `${description} — Parcela ${i + 1}/${installments.length}`,
         dueDate: inst.due_date,
-        amount: parseFloat(inst.amount),
+        amount: parseMoneyBRToNumber(inst.amount),
       })));
     }
   };
@@ -109,12 +111,11 @@ function ConfirmReceivableModal({ open, onClose, onConfirm, amount }) {
                       onChange={(e) => updateInstallment(i, 'due_date', e.target.value)}
                       className="flex-1 px-2 py-1.5 border border-slate-300 rounded-md text-sm"
                     />
-                    <input
-                      type="number" min="0.01" step="0.01"
+                    <MoneyInput
                       value={inst.amount}
-                      onChange={(e) => updateInstallment(i, 'amount', e.target.value)}
-                      className="w-28 px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                      placeholder="Valor"
+                      onChange={(v) => updateInstallment(i, 'amount', v)}
+                      className="w-28"
+                      placeholder="0,00"
                     />
                   </div>
                 ))}

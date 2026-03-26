@@ -4,6 +4,9 @@ import { base44 } from '@/api/base44Client';
 import { SERVICE_AREAS, getSubareas } from '../utils/serviceAreas';
 import { getConsultingHourlyRate, getDiagnosticRate } from '../utils/hourlyRateTables';
 import { format } from 'date-fns';
+import MoneyInput from "@/components/ui/MoneyInput";
+import PhoneInput from "@/components/ui/PhoneInput";
+import { parseMoneyBRToNumber, validateISODate, validatePhone } from "@/lib/validators";
 
 const TYPE_LABELS = {
   diagnostic: 'Diagnóstico',
@@ -564,8 +567,20 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
       alert('Preencha todos os campos obrigatórios');
       return;
     }
+    if (!validateISODate(formData.start_date)) {
+      alert('Informe uma data de início válida.');
+      return;
+    }
     if (isConsulting && (!formData.sebrae_manager_name || !formData.sebrae_manager_phone)) {
       alert('Informe o Gestor Responsável (nome e telefone)');
+      return;
+    }
+    if (isConsulting && formData.sebrae_manager_phone && !validatePhone(formData.sebrae_manager_phone)) {
+      alert('Informe um telefone válido para o Gestor Responsável.');
+      return;
+    }
+    if (isConsulting && formData.sebrae_regional_phone && !validatePhone(formData.sebrae_regional_phone)) {
+      alert('Informe um telefone válido para o Gerente Regional.');
       return;
     }
 
@@ -574,9 +589,14 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
     const autoName = selectedClient ? `${selectedClient.company_name} - ${dateStr}` : dateStr;
 
     // Usar o valor calculado pelo breakdown de grupos quando disponível
+    const contractedFieldValue = parseMoneyBRToNumber(formData.contracted_value);
+    if (calculatedTotalFromBreakdown <= 0 && (!Number.isFinite(contractedFieldValue) || contractedFieldValue < 0)) {
+      alert('Informe um Valor Contratado (R$) válido.');
+      return;
+    }
     const finalContractedValue = calculatedTotalFromBreakdown > 0
       ? calculatedTotalFromBreakdown
-      : (parseFloat(formData.contracted_value) || 0);
+      : (Number.isFinite(contractedFieldValue) ? contractedFieldValue : 0);
 
     // Calcular phase_value para cada fase do schedule_config
     // Se há agrupamentos: cada fase (linha do cronograma) corresponde a um grupo ou atividade individual
@@ -654,7 +674,7 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
       days_off_position: formData.days_off_position,
       estimated_hours: parseFloat(formData.estimated_hours) || 0,
       contracted_value: finalContractedValue,
-      hourly_rate: parseFloat(formData.hourly_rate) || 0,
+      hourly_rate: parseMoneyBRToNumber(formData.hourly_rate) || 0,
       subsidy_percent: parseFloat(formData.subsidy_percent) || 70,
       payment_method: 'avista_cartao',
       sebrae_manager_name: formData.sebrae_manager_name || '',
@@ -707,6 +727,22 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
 
   const handlePpCreate = () => {
     if (!formData.consultant_id || !ppParsedData) return;
+    if (ppStartDate && !validateISODate(ppStartDate)) {
+      alert('Informe uma Data Inicial válida (Políticas Públicas).');
+      return;
+    }
+    if (ppEndDate && !validateISODate(ppEndDate)) {
+      alert('Informe uma Data Final válida (Políticas Públicas).');
+      return;
+    }
+    if (ppStartDate && ppEndDate) {
+      const startDt = new Date(ppStartDate + 'T12:00:00');
+      const endDt = new Date(ppEndDate + 'T12:00:00');
+      if (endDt.getTime() < startDt.getTime()) {
+        alert('A Data Final deve ser maior ou igual à Data Inicial.');
+        return;
+      }
+    }
     const phases = ppParsedData.phases || [];
     const sortedPhases = [...phases].sort((a, b) => (a.phase_number || 0) - (b.phase_number || 0));
     const firstPhaseDate = sortedPhases.find(p => p.start_date)?.start_date;
@@ -798,7 +834,7 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
   }
 
   // Usar valor calculado se disponível (km + atividades preenchidos), senão usar valor do campo
-  const contractedValueFromField = parseFloat(formData.contracted_value) || 0;
+  const contractedValueFromField = parseMoneyBRToNumber(formData.contracted_value) || 0;
   const contractedValue = calculatedTotalFromBreakdown > 0
     ? calculatedTotalFromBreakdown
     : contractedValueFromField;
@@ -1578,8 +1614,16 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
                   </div>
                   <div>
                     <label style={labelStyle}>Valor Contratado R$ (calculado pela tabela)</label>
-                    <input type="number" name="contracted_value" value={formData.contracted_value} onChange={handleChange} min="0" step="0.01"
-                      style={{ ...inputStyle, backgroundColor: formData.km_rodado ? '#f0fdf4' : 'white', fontWeight: 600 }} />
+                    <MoneyInput
+                      value={formData.contracted_value}
+                      onChange={(v) => setFormData(prev => ({ ...prev, contracted_value: v }))}
+                      style={{
+                        ...inputStyle,
+                        backgroundColor: formData.km_rodado ? '#f0fdf4' : 'white',
+                        fontWeight: 600,
+                        textAlign: 'right',
+                      }}
+                    />
                     {formData.km_rodado && (
                       <p style={{ fontSize: '11px', color: '#16a34a', marginTop: '4px' }}>
                         ✓ Calculado pela tabela de Diagnósticos para {formData.km_rodado} km
@@ -1606,7 +1650,12 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
                 </div>
                 <div>
                   <label style={labelStyle}>Valor Contratado (R$)</label>
-                  <input type="number" name="contracted_value" value={formData.contracted_value} onChange={handleChange} min="0" step="0.01" style={inputStyle} />
+                  <MoneyInput
+                    value={formData.contracted_value}
+                    onChange={(v) => setFormData(prev => ({ ...prev, contracted_value: v }))}
+                    min={0}
+                    style={inputStyle}
+                  />
                 </div>
               </div>
             </div>
@@ -1837,8 +1886,18 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
                             R$ {contractedValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         ) : (
-                          <input type="number" name="contracted_value" value={formData.contracted_value} onChange={handleChange} min="0" step="0.01"
-                            style={{ width: '140px', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', textAlign: 'right' }} />
+                          <MoneyInput
+                            value={formData.contracted_value}
+                            onChange={(v) => setFormData(prev => ({ ...prev, contracted_value: v }))}
+                            min={0}
+                            style={{
+                              width: '140px',
+                              padding: '6px 8px',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '4px',
+                              textAlign: 'right',
+                            }}
+                          />
                         )}
                       </td>
                     </tr>
@@ -1895,7 +1954,12 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
                 </div>
                 <div>
                   <label style={labelStyle}>Gestor Responsável - Telefone *</label>
-                  <input type="text" name="sebrae_manager_phone" value={formData.sebrae_manager_phone} onChange={handleChange} required style={inputStyle} />
+                  <PhoneInput
+                    value={formData.sebrae_manager_phone}
+                    onChange={(v) => setFormData(prev => ({ ...prev, sebrae_manager_phone: v }))}
+                    required
+                    style={inputStyle}
+                  />
                 </div>
                 <div>
                   <label style={labelStyle}>Gerente Regional - Nome</label>
@@ -1903,7 +1967,11 @@ export default function ProjectForm({ open, onClose, project, onSave, loading, c
                 </div>
                 <div>
                   <label style={labelStyle}>Gerente Regional - Telefone</label>
-                  <input type="text" name="sebrae_regional_phone" value={formData.sebrae_regional_phone} onChange={handleChange} style={inputStyle} />
+                  <PhoneInput
+                    value={formData.sebrae_regional_phone}
+                    onChange={(v) => setFormData(prev => ({ ...prev, sebrae_regional_phone: v }))}
+                    style={inputStyle}
+                  />
                 </div>
               </div>
             </div>

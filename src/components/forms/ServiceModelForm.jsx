@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Loader2, X, Plus, Upload, FileText, Trash2 } from "lucide-react";
 import { base44 } from '@/api/base44Client';
+import MoneyInput from "@/components/ui/MoneyInput";
+import { parseMoneyBRToNumber, validateMoney } from "@/lib/validators";
 
 const SERVICE_TYPES = {
   diagnostic: "Diagnóstico",
@@ -103,10 +105,18 @@ export default function ServiceModelForm({ open, onClose, service, onSave, loadi
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!validateMoney(form.base_price, { min: 0 })) {
+      alert('Informe um Preço Base (R$) válido.');
+      return;
+    }
+    if (form.hourly_rate && !validateMoney(form.hourly_rate, { min: 0 })) {
+      alert('Informe um Valor/Hora (R$) válido.');
+      return;
+    }
     onSave({
       ...form,
-      base_price: parseFloat(form.base_price) || 0,
-      hourly_rate: parseFloat(form.hourly_rate) || 0,
+      base_price: parseMoneyBRToNumber(form.base_price) || 0,
+      hourly_rate: parseMoneyBRToNumber(form.hourly_rate) || 0,
       estimated_hours: parseFloat(form.estimated_hours) || 0
     });
   };
@@ -167,22 +177,18 @@ export default function ServiceModelForm({ open, onClose, service, onSave, loadi
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Preço Base (R$) *</Label>
-                <Input 
-                  type="number"
-                  step="0.01"
+                <MoneyInput
                   value={form.base_price} 
-                  onChange={(e) => setForm({...form, base_price: e.target.value})}
+                  onChange={(v) => setForm({ ...form, base_price: v })}
                   required
                 />
               </div>
               <div>
                 <Label>Valor/Hora Consultor (R$)</Label>
-                <Input 
-                  type="number"
-                  step="0.01"
-                  value={form.hourly_rate} 
-                  onChange={(e) => setForm({...form, hourly_rate: e.target.value})}
-                  placeholder="Ex: 250.00"
+                <MoneyInput
+                  value={form.hourly_rate}
+                  onChange={(v) => setForm({ ...form, hourly_rate: v })}
+                  placeholder="0,00"
                 />
               </div>
               <div>
