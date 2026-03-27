@@ -233,8 +233,23 @@ export const base44 = {
           },
         };
       }
+      if (name === 'parseViabilityPdf') {
+        const { data, error } = await supabase.functions.invoke(name, { body: payload });
+        if (error) {
+          return {
+            data: {
+              success: false,
+              error: error.message || `Erro ao executar função ${name}`,
+            },
+          };
+        }
+        return { data };
+      }
 
-      throw new Error(`Função não suportada: ${name}`);
+      // Fallback genérico para outras funções server-side
+      const { data, error } = await supabase.functions.invoke(name, { body: payload });
+      if (error) throw new Error(error.message || `Função não suportada: ${name}`);
+      return { data };
     },
   },
 
