@@ -1,4 +1,3 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import pdfParse from 'npm:pdf-parse@1.1.1';
 import { Buffer } from 'node:buffer';
 
@@ -116,15 +115,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) {
-      return Response.json(
-        { error: 'Unauthorized' },
-        { status: 401, headers: corsHeaders }
-      );
-    }
-
     const body = await req.json();
     const file_url = body?.file_url;
 
