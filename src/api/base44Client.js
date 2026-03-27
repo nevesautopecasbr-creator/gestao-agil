@@ -113,6 +113,27 @@ const storageUploadFile = async ({ file }) => {
   return { file_url: data.publicUrl };
 };
 
+const getFunctionErrorMessage = async (error, functionName) => {
+  let message = error?.message || `Erro ao executar função ${functionName}`;
+  const status = error?.context?.status;
+
+  try {
+    const details = await error?.context?.json?.();
+    const backendMessage = details?.error || details?.message;
+    if (backendMessage) {
+      message = backendMessage;
+    }
+  } catch (_) {
+    // Ignora parse de body quando não houver JSON.
+  }
+
+  if (status) {
+    message = `[${status}] ${message}`;
+  }
+
+  return message;
+};
+
 export const base44 = {
   auth: {
     me: async () => {
@@ -236,10 +257,11 @@ export const base44 = {
       if (name === 'parseViabilityPdf') {
         const { data, error } = await supabase.functions.invoke(name, { body: payload });
         if (error) {
+          const detailedMessage = await getFunctionErrorMessage(error, name);
           return {
             data: {
               success: false,
-              error: error.message || `Erro ao executar função ${name}`,
+              error: detailedMessage,
             },
           };
         }
