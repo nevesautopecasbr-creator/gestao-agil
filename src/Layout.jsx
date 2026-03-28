@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/lib/AuthContext';
 import { 
   LayoutDashboard, 
   Users, 
@@ -53,23 +53,12 @@ const clientMenuItems = [
 
 export default function Layout({ children, currentPageName }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  const { data: user, isLoading } = useQuery({
-    queryKey: ['currentUser'],
-    queryFn: () => base44.auth.me(),
-  });
+  const { user } = useAuth();
 
-  // Simplificar: admin por padrão, ou usar user_type se existir
+  // Utilizador já foi resolvido no AuthProvider antes de renderizar rotas autenticadas.
+  // Evita um segundo fetch + ecrã "Carregando..." (que parecia refresh ao voltar o foco).
   const userType = user?.user_type || 'admin';
-  
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-slate-500">Carregando...</div>
-      </div>
-    );
-  }
-  
+
   const menuItems = userType === 'admin' 
     ? adminMenuItems 
     : userType === 'consultant' 

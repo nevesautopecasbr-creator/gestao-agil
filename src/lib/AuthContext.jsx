@@ -1,4 +1,10 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, {
+  createContext,
+  useState,
+  useContext,
+  useEffect,
+  useCallback,
+} from 'react';
 import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
 
@@ -13,7 +19,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let cancelled = false;
 
-    const syncFromSession = async (session, { showLoading = false } = {}) => {
+    const syncFromSession = async (session, { showGlobalLoader = false } = {}) => {
       if (!session) {
         if (!cancelled) {
           setUser(null);
@@ -25,7 +31,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        if (showLoading && !cancelled) setIsLoadingAuth(true);
+        if (showGlobalLoader && !cancelled) setIsLoadingAuth(true);
         const currentUser = await base44.auth.me();
         if (cancelled) return;
         setUser(currentUser);
@@ -48,31 +54,47 @@ export const AuthProvider = ({ children }) => {
           });
         }
       } finally {
-        if (!cancelled) setIsLoadingAuth(false);
+        // Só desliga o loader global se esta chamada o ligou — evita corridas com SIGNED_IN/USER_UPDATED em paralelo.
+        if (showGlobalLoader && !cancelled) setIsLoadingAuth(false);
       }
     };
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // Ao voltar para a aba, o Supabase renova o token e dispara TOKEN_REFRESHED.
-      // Antes isto punha isLoadingAuth=true e o App mostrava o ecrã de loading inteiro (parecia refresh).
+      // TOKEN_REFRESHED: renovação ao voltar à aba — não precisa re-sync do perfil nem bloquear o app.
       if (event === 'TOKEN_REFRESHED') {
         return;
       }
 
-      const showLoading =
-        event === 'INITIAL_SESSION' ||
-        event === 'SIGNED_IN' ||
-        event === 'PASSWORD_RECOVERY';
+      // Apenas a primeira hidratação da sessão pode usar o ecrã de loading do App.
+      // SIGNED_IN volta a disparar em vários browsers ao focar a janela (storage/sync) e não pode
+      // esconder a UI inteira de novo.
+      const showGlobalLoader = event === 'INITIAL_SESSION';
 
-      void syncFromSession(session, { showLoading });
+      void syncFromSession(session, { showGlobalLoader });
     });
 
     return () => {
       cancelled = true;
       subscription.unsubscribe();
     };
+  }, []);
+
+  /** Atualiza o perfil no contexto (ex.: após salvar nome em Configurações) sem ecrã de loading global. */
+  const refreshUser = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+      const currentUser = await base44.auth.me();
+      setUser(currentUser);
+      setIsAuthenticated(true);
+      setAuthError(null);
+    } catch (e) {
+      console.error('refreshUser failed:', e);
+    }
   }, []);
 
   const logout = (shouldRedirect = true) => {
@@ -94,13 +116,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated,
       isLoadingAuth,
       authError,
       logout,
       navigateToLogin,
+      refreshUser,
     }}>
       {children}
     </AuthContext.Provider>

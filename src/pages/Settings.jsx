@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Settings as SettingsIcon, User, Bell, Shield, Loader2, Check } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -13,7 +14,8 @@ import { motion } from 'framer-motion';
 
 export default function Settings() {
   const [saveStatus, setSaveStatus] = useState(null);
-  
+  const { refreshUser } = useAuth();
+
   const queryClient = useQueryClient();
 
   const { data: user } = useQuery({
@@ -37,7 +39,8 @@ export default function Settings() {
 
   const updateProfileMutation = useMutation({
     mutationFn: (data) => base44.auth.updateMe(data),
-    onSuccess: () => {
+    onSuccess: async () => {
+      await refreshUser();
       queryClient.invalidateQueries({ queryKey: ['currentUser'] });
       setSaveStatus('success');
       setTimeout(() => setSaveStatus(null), 2000);
