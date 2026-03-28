@@ -13,13 +13,33 @@ const tabs = [
   { key: 'viability', label: 'Análise de Viabilidade' },
 ];
 
+const TAB_KEYS = new Set(tabs.map((t) => t.key));
+const HOURLY_RATES_TAB_KEY = 'hourlyRates_activeTab';
+
+function readStoredTab() {
+  try {
+    const raw = sessionStorage.getItem(HOURLY_RATES_TAB_KEY);
+    return TAB_KEYS.has(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistTab(key) {
+  try {
+    sessionStorage.setItem(HOURLY_RATES_TAB_KEY, key);
+  } catch {
+    /* ignore */
+  }
+}
+
 function formatBRL(val) {
   if (val === null || val === undefined) return '-';
   return `R$ ${val.toLocaleString('pt-BR')}`;
 }
 
 export default function HourlyRates() {
-  const [activeTab, setActiveTab] = useState('consulting');
+  const [activeTab, setActiveTab] = useState(() => readStoredTab() || 'consulting');
   const [filterKm, setFilterKm] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -118,7 +138,10 @@ export default function HourlyRates() {
         {tabs.map(t => (
           <button
             key={t.key}
-            onClick={() => setActiveTab(t.key)}
+            onClick={() => {
+              persistTab(t.key);
+              setActiveTab(t.key);
+            }}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === t.key
                 ? 'border-[#1e3a5f] text-[#1e3a5f]'

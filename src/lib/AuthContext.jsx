@@ -13,7 +13,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let cancelled = false;
 
-    const syncFromSession = async (session) => {
+    const syncFromSession = async (session, { showLoading = false } = {}) => {
       if (!session) {
         if (!cancelled) {
           setUser(null);
@@ -25,7 +25,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        if (!cancelled) setIsLoadingAuth(true);
+        if (showLoading && !cancelled) setIsLoadingAuth(true);
         const currentUser = await base44.auth.me();
         if (cancelled) return;
         setUser(currentUser);
@@ -54,8 +54,19 @@ export const AuthProvider = ({ children }) => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      syncFromSession(session);
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // Ao voltar para a aba, o Supabase renova o token e dispara TOKEN_REFRESHED.
+      // Antes isto punha isLoadingAuth=true e o App mostrava o ecrã de loading inteiro (parecia refresh).
+      if (event === 'TOKEN_REFRESHED') {
+        return;
+      }
+
+      const showLoading =
+        event === 'INITIAL_SESSION' ||
+        event === 'SIGNED_IN' ||
+        event === 'PASSWORD_RECOVERY';
+
+      void syncFromSession(session, { showLoading });
     });
 
     return () => {
