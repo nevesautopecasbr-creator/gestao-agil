@@ -1,6 +1,9 @@
 import React from "react";
 import Cleave from "cleave.js/react";
 
+const baseInputClass =
+  "flex h-9 w-full rounded-md border border-input bg-transparent py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
+
 export default function MoneyInput({
   value,
   onChange,
@@ -8,33 +11,54 @@ export default function MoneyInput({
   disabled = false,
   placeholder = "0,00",
   className = "",
-  min = 0,
   style,
+  /** Casas decimais (ex.: 2 para centavos, 4 para valor/km fino). */
+  decimalScale = 2,
+  /** Mostra "R$" à esquerda sem usar prefix do Cleave (evita confundir rawValue no parse). */
+  leadingSymbol = null,
   ...rest
 }) {
-  return (
+  const padClass = leadingSymbol ? "pl-9 pr-3" : "px-3";
+
+  const cleave = (
     <Cleave
       value={value ?? ""}
       options={{
         numeral: true,
         numeralDecimalMark: ",",
         delimiter: ".",
-        numeralDecimalScale: 2,
-        // Mantém apenas número com separadores (sem prefixo), para facilitar parse no submit.
+        numeralDecimalScale: decimalScale,
+        numeralPositiveOnly: true,
         prefix: "",
       }}
       required={required}
       disabled={disabled}
       placeholder={placeholder}
-      className={`flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${className}`}
+      inputMode="decimal"
+      className={`${baseInputClass} ${padClass} ${className}`}
       style={style}
       {...rest}
       onChange={(e) => {
-        // rawValue é ideal para conversões; quando vazio, vem como "".
         const raw = e?.target?.rawValue ?? e?.target?.value ?? "";
         onChange?.(raw);
       }}
     />
+  );
+
+  if (!leadingSymbol) {
+    return cleave;
+  }
+
+  return (
+    <div className="relative w-full">
+      <span
+        className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-sm text-muted-foreground select-none"
+        aria-hidden
+      >
+        {leadingSymbol}
+      </span>
+      {cleave}
+    </div>
   );
 }
 

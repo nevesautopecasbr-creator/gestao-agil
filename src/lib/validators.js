@@ -118,12 +118,21 @@ export function validateMoney(value, { min = 0, allowEmpty = false } = {}) {
   return n >= min;
 }
 
-/** Formata número para string compatível com Cleave (ex.: 1.234,56). */
-export function formatNumberToMoneyBRInput(n) {
+/**
+ * Formata número para string compatível com Cleave (ex.: 1.234,56).
+ * @param {number|string|null|undefined} n
+ * @param {{ minFractionDigits?: number, maxFractionDigits?: number }} [opts]
+ */
+export function formatNumberToMoneyBRInput(n, opts = {}) {
+  const minFD = opts.minFractionDigits ?? 2;
+  const maxFD = opts.maxFractionDigits ?? 2;
   if (n === null || n === undefined || n === '') return '';
   const num = Number(n);
   if (!Number.isFinite(num)) return '';
-  return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return num.toLocaleString('pt-BR', {
+    minimumFractionDigits: minFD,
+    maximumFractionDigits: maxFD,
+  });
 }
 
 export function formatCPF(cpfDigits) {
