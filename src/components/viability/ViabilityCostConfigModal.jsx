@@ -7,8 +7,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import MoneyInput from '@/components/ui/MoneyInput';
-import { parseMoneyBRToNumber, validateMoney, formatNumberToMoneyBRInput } from '@/lib/validators';
+import CentavosMoneyInput from '@/components/ui/CentavosMoneyInput';
+import {
+  reaisToCentavosDigitString,
+  validateCentavosDigits,
+  centavosDigitsToReais,
+} from '@/lib/validators';
 import { upsertViabilityCostConfig } from '@/api/viabilityCostConfigApi';
 import { toast } from '@/components/ui/use-toast';
 
@@ -22,13 +26,10 @@ const emptyForm = () => ({
 function configToFormFields(config) {
   if (!config) return emptyForm();
   return {
-    valorHoraConsultor: formatNumberToMoneyBRInput(config.valorHoraConsultor),
-    custoHospedagemDiaria: formatNumberToMoneyBRInput(config.custoHospedagemDiaria),
-    custoAlimentacaoDiaria: formatNumberToMoneyBRInput(config.custoAlimentacaoDiaria),
-    custoPorKm: formatNumberToMoneyBRInput(config.custoPorKm, {
-      minFractionDigits: 2,
-      maxFractionDigits: 4,
-    }),
+    valorHoraConsultor: reaisToCentavosDigitString(config.valorHoraConsultor),
+    custoHospedagemDiaria: reaisToCentavosDigitString(config.custoHospedagemDiaria),
+    custoAlimentacaoDiaria: reaisToCentavosDigitString(config.custoAlimentacaoDiaria),
+    custoPorKm: reaisToCentavosDigitString(config.custoPorKm),
   };
 }
 
@@ -64,11 +65,11 @@ export default function ViabilityCostConfigModal({
       ['custoPorKm', form.custoPorKm],
     ];
 
-    for (const [, raw] of fields) {
-      if (!validateMoney(raw, { min: 0, allowEmpty: false })) {
+    for (const [, digits] of fields) {
+      if (!validateCentavosDigits(digits, { min: 0, allowEmpty: false })) {
         toast({
           title: 'Valores inválidos',
-          description: 'Preencha todos os campos com valores numéricos válidos (≥ 0).',
+          description: 'Preencha todos os campos com valores válidos (use só números; os dois últimos são centavos).',
           variant: 'destructive',
         });
         return;
@@ -76,10 +77,10 @@ export default function ViabilityCostConfigModal({
     }
 
     const payload = {
-      valorHoraConsultor: parseMoneyBRToNumber(form.valorHoraConsultor),
-      custoHospedagemDiaria: parseMoneyBRToNumber(form.custoHospedagemDiaria),
-      custoAlimentacaoDiaria: parseMoneyBRToNumber(form.custoAlimentacaoDiaria),
-      custoPorKm: Number(parseMoneyBRToNumber(form.custoPorKm).toFixed(2)),
+      valorHoraConsultor: centavosDigitsToReais(form.valorHoraConsultor),
+      custoHospedagemDiaria: centavosDigitsToReais(form.custoHospedagemDiaria),
+      custoAlimentacaoDiaria: centavosDigitsToReais(form.custoAlimentacaoDiaria),
+      custoPorKm: centavosDigitsToReais(form.custoPorKm),
       createdBy: createdBy || undefined,
     };
 
@@ -113,18 +114,18 @@ export default function ViabilityCostConfigModal({
         <DialogHeader>
           <DialogTitle>Custos operacionais de viabilidade</DialogTitle>
           <p className="text-sm text-muted-foreground font-normal pt-1">
-            Valores em reais com centavos: use <strong>vírgula</strong> nos decimais e <strong>ponto</strong> nos
-            milhares (ex.: <span className="whitespace-nowrap">1.250,75</span> ou <span className="whitespace-nowrap">0,85</span>).
+            Digite só números: os <strong>dois últimos dígitos</strong> são sempre centavos depois da vírgula.
+            Ex.: <span className="whitespace-nowrap">2345</span> vira{' '}
+            <span className="whitespace-nowrap">23,45</span>; <span className="whitespace-nowrap">5</span> vira{' '}
+            <span className="whitespace-nowrap">0,05</span>.
           </p>
         </DialogHeader>
 
         <div className="space-y-3 py-2">
           <div>
             <label className="text-sm font-medium text-slate-700">Valor hora consultor</label>
-            <MoneyInput
+            <CentavosMoneyInput
               className={inputClass}
-              leadingSymbol="R$"
-              decimalScale={2}
               placeholder="0,00"
               value={form.valorHoraConsultor}
               onChange={(v) => setForm((f) => ({ ...f, valorHoraConsultor: v }))}
@@ -134,10 +135,8 @@ export default function ViabilityCostConfigModal({
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Custo hospedagem diária</label>
-            <MoneyInput
+            <CentavosMoneyInput
               className={inputClass}
-              leadingSymbol="R$"
-              decimalScale={2}
               placeholder="0,00"
               value={form.custoHospedagemDiaria}
               onChange={(v) => setForm((f) => ({ ...f, custoHospedagemDiaria: v }))}
@@ -147,10 +146,8 @@ export default function ViabilityCostConfigModal({
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Custo alimentação diária</label>
-            <MoneyInput
+            <CentavosMoneyInput
               className={inputClass}
-              leadingSymbol="R$"
-              decimalScale={2}
               placeholder="0,00"
               value={form.custoAlimentacaoDiaria}
               onChange={(v) => setForm((f) => ({ ...f, custoAlimentacaoDiaria: v }))}
@@ -160,17 +157,14 @@ export default function ViabilityCostConfigModal({
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Custo por km</label>
-            <MoneyInput
+            <CentavosMoneyInput
               className={inputClass}
-              leadingSymbol="R$"
-              decimalScale={4}
-              placeholder="0,0000"
+              placeholder="0,00"
               value={form.custoPorKm}
               onChange={(v) => setForm((f) => ({ ...f, custoPorKm: v }))}
               required
               disabled={saving}
             />
-            <p className="text-xs text-slate-500 mt-1">Até 4 casas decimais (ex.: combustível/km). O valor é arredondado a 2 casas ao guardar.</p>
           </div>
         </div>
 

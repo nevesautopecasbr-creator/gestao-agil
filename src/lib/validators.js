@@ -135,6 +135,57 @@ export function formatNumberToMoneyBRInput(n, opts = {}) {
   });
 }
 
+/** Limite de dígitos (centavos) para caber em Number com folga. */
+export const MAX_CENTAVOS_DIGIT_STRING_LENGTH = 14;
+
+/**
+ * Converte valor em reais (BD/número) para string só com dígitos = centavos (ex.: 23,45 → "2345").
+ */
+export function reaisToCentavosDigitString(reais) {
+  if (reais === null || reais === undefined || reais === '') return '';
+  const num = Number(reais);
+  if (!Number.isFinite(num) || num < 0) return '';
+  const cents = Math.round(num * 100);
+  if (!Number.isFinite(cents) || cents < 0) return '';
+  const maxCents = 10 ** MAX_CENTAVOS_DIGIT_STRING_LENGTH - 1;
+  const s = String(Math.min(cents, maxCents));
+  return s;
+}
+
+/**
+ * Exibe string de centavos como moeda BR (sempre 2 decimais após a vírgula).
+ * Ex.: "2345" → "23,45"
+ */
+export function formatCentavosDigitsToBRL(digitStr) {
+  if (digitStr === null || digitStr === undefined || digitStr === '') return '';
+  const cleaned = String(digitStr).replace(/\D/g, '').slice(0, MAX_CENTAVOS_DIGIT_STRING_LENGTH);
+  if (!cleaned) return '';
+  const n = Number(cleaned) / 100;
+  if (!Number.isFinite(n)) return '';
+  return n.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** Converte string de dígitos (centavos) para número em reais. */
+export function centavosDigitsToReais(digitStr) {
+  if (digitStr === null || digitStr === undefined || digitStr === '') return NaN;
+  const cleaned = String(digitStr).replace(/\D/g, '');
+  if (!cleaned) return NaN;
+  const n = Number(cleaned) / 100;
+  return Number.isFinite(n) ? n : NaN;
+}
+
+export function validateCentavosDigits(digitStr, { min = 0, allowEmpty = false } = {}) {
+  if (digitStr === null || digitStr === undefined || digitStr === '') {
+    return allowEmpty ? true : false;
+  }
+  const n = centavosDigitsToReais(digitStr);
+  if (!Number.isFinite(n)) return false;
+  return n >= min;
+}
+
 export function formatCPF(cpfDigits) {
   const d = digitsOnly(cpfDigits);
   if (d.length !== 11) return cpfDigits || '';
