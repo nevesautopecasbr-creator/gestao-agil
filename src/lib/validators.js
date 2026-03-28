@@ -118,6 +118,14 @@ export function validateMoney(value, { min = 0, allowEmpty = false } = {}) {
   return n >= min;
 }
 
+/** Formata número para string compatível com Cleave (ex.: 1.234,56). */
+export function formatNumberToMoneyBRInput(n) {
+  if (n === null || n === undefined || n === '') return '';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '';
+  return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function formatCPF(cpfDigits) {
   const d = digitsOnly(cpfDigits);
   if (d.length !== 11) return cpfDigits || '';

@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import PageHeader from '../components/ui/PageHeader';
 import { KM_RANGES, CONSULTING_HOUR_RANGES, CONSULTING_RATES, INSTRUCTIONAL_HOUR_RANGES, INSTRUCTIONAL_RATES, WORKSHOPS_DIAGNOSTICS_LECTURES } from '../components/utils/hourlyRateTables';
 import { base44 } from '@/api/base44Client';
+import { getViabilityCostConfig } from '@/api/viabilityCostConfigApi';
+import ViabilityCostConfigModal from '@/components/viability/ViabilityCostConfigModal';
 
 const tabs = [
   { key: 'consulting', label: 'Consultoria de Gestão' },
@@ -22,6 +25,32 @@ export default function HourlyRates() {
   const [isUploading, setIsUploading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [viabilityCostConfig, setViabilityCostConfig] = useState(null);
+  const [viabilityCostLoading, setViabilityCostLoading] = useState(true);
+  const [viabilityCostError, setViabilityCostError] = useState('');
+  const [costModalOpen, setCostModalOpen] = useState(false);
+
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => base44.auth.me(),
+  });
+  const isAdmin = (currentUser?.user_type || 'admin') === 'admin';
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setViabilityCostLoading(true);
+      setViabilityCostError('');
+      const { data, error } = await getViabilityCostConfig();
+      if (cancelled) return;
+      if (error) setViabilityCostError(error.message);
+      else setViabilityCostConfig(data);
+      setViabilityCostLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredKmIndexes = KM_RANGES.map((_, i) => i).filter(i => {
     if (!filterKm) return true;
@@ -205,6 +234,72 @@ export default function HourlyRates() {
       {/* ANALISE DE VIABILIDADE */}
       {activeTab === 'viability' && (
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-4 space-y-4 max-w-3xl">
+          <ViabilityCostConfigModal
+            open={costModalOpen}
+            onOpenChange={setCostModalOpen}
+            initialConfig={viabilityCostConfig}
+            createdBy={currentUser?.email || null}
+            onSaved={(saved) => setViabilityCostConfig(saved)}
+          />
+
+          <div className="rounded-md border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <h4 className="text-sm font-semibold text-slate-900">Parâmetros de custo atuais</h4>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setCostModalOpen(true)}
+                  className="text-sm font-medium text-[#1e3a5f] hover:underline whitespace-nowrap"
+                >
+                  Editar valores
+                </button>
+              )}
+            </div>
+            {viabilityCostLoading && (
+              <p className="text-sm text-slate-500">Carregando parâmetros...</p>
+            )}
+            {!viabilityCostLoading && viabilityCostError && (
+              <p className="text-sm text-rose-600">{viabilityCostError}</p>
+            )}
+            {!viabilityCostLoading && !viabilityCostError && !viabilityCostConfig && (
+              <p className="text-sm text-slate-500">
+                Nenhum registro de custos encontrado. {isAdmin ? 'Use o botão abaixo para definir os valores.' : 'Peça a um administrador para configurar.'}
+              </p>
+            )}
+            {!viabilityCostLoading && !viabilityCostError && viabilityCostConfig && (
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <div className="flex justify-between gap-2 sm:block">
+                  <dt className="text-slate-500">Valor hora consultor</dt>
+                  <dd className="font-medium text-slate-900">{formatBRL(viabilityCostConfig.valorHoraConsultor)}</dd>
+                </div>
+                <div className="flex justify-between gap-2 sm:block">
+                  <dt className="text-slate-500">Hospedagem / dia</dt>
+                  <dd className="font-medium text-slate-900">{formatBRL(viabilityCostConfig.custoHospedagemDiaria)}</dd>
+                </div>
+                <div className="flex justify-between gap-2 sm:block">
+                  <dt className="text-slate-500">Alimentação / dia</dt>
+                  <dd className="font-medium text-slate-900">{formatBRL(viabilityCostConfig.custoAlimentacaoDiaria)}</dd>
+                </div>
+                <div className="flex justify-between gap-2 sm:block">
+                  <dt className="text-slate-500">Custo por km</dt>
+                  <dd className="font-medium text-slate-900">{formatBRL(viabilityCostConfig.custoPorKm)}</dd>
+                </div>
+              </dl>
+            )}
+          </div>
+
+          {isAdmin && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setCostModalOpen(true)}
+                className="px-4 py-2 rounded-md border border-slate-300 bg-white text-slate-800 text-sm font-medium hover:bg-slate-50"
+              >
+                Definir custos de viabilidade
+              </button>
+            </div>
+          )}
+
           <div>
             <h3 className="text-base font-semibold text-slate-900">Análise de Viabilidade (Demanda de Consultoria)</h3>
             <p className="text-sm text-slate-500 mt-1">
