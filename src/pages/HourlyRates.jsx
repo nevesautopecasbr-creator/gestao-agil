@@ -5,6 +5,8 @@ import { KM_RANGES, CONSULTING_HOUR_RANGES, CONSULTING_RATES, INSTRUCTIONAL_HOUR
 import { base44 } from '@/api/base44Client';
 import { getViabilityCostConfig } from '@/api/viabilityCostConfigApi';
 import ViabilityCostConfigModal from '@/components/viability/ViabilityCostConfigModal';
+import { analisarViabilidadeProjeto } from '@/lib/viabilityEngine';
+import { normalizeCepDigits, isValidCepBR, formatCEPInput } from '@/lib/validators';
 
 const tabs = [
   { key: 'consulting', label: 'Consultoria de Gestão' },
@@ -49,6 +51,9 @@ export default function HourlyRates() {
   const [viabilityCostLoading, setViabilityCostLoading] = useState(true);
   const [viabilityCostError, setViabilityCostError] = useState('');
   const [costModalOpen, setCostModalOpen] = useState(false);
+  const [motorLoading, setMotorLoading] = useState(false);
+  const [motorError, setMotorError] = useState('');
+  const [motorResult, setMotorResult] = useState(null);
 
   const { data: currentUser } = useQuery({
     queryKey: ['currentUser'],
@@ -87,6 +92,8 @@ export default function HourlyRates() {
     const file = e.target.files?.[0];
     setAnalysisError('');
     setAnalysisResult(null);
+    setMotorError('');
+    setMotorResult(null);
     if (!file) {
       setSelectedFile(null);
       return;
@@ -108,6 +115,8 @@ export default function HourlyRates() {
     setIsUploading(true);
     setAnalysisError('');
     setAnalysisResult(null);
+    setMotorError('');
+    setMotorResult(null);
 
     try {
       const { file_url } = await base44.integrations.Core.UploadFile({ file: selectedFile });
@@ -123,6 +132,65 @@ export default function HourlyRates() {
       setAnalysisError(error?.message || 'Erro ao enviar/analisar o arquivo.');
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleCalcularViabilidade = async () => {
+    setMotorError('');
+    setMotorResult(null);
+
+    if (!viabilityCostConfig) {
+      setMotorError('Configure os custos de viabilidade (e CEP de origem) antes de calcular.');
+      return;
+    }
+    if (!analysisResult) {
+      setMotorError('Analise um PDF primeiro para obter o CEP de destino e os demais dados.');
+      return;
+    }
+    if (!isValidCepBR(viabilityCostConfig.cepOrigem)) {
+      setMotorError('CEP de origem inválido ou ausente. Edite os custos e informe 8 dígitos no CEP da base.');
+      return;
+    }
+    if (!isValidCepBR(analysisResult.cep_destino)) {
+      setMotorError('CEP de destino não encontrado ou inválido no PDF. Verifique o arquivo ou extraia novamente.');
+      return;
+    }
+
+    setMotorLoading(true);
+    try {
+      const response = await base44.functions.invoke('googleDistanceKm', {
+        cep_origem: normalizeCepDigits(viabilityCostConfig.cepOrigem),
+        cep_destino: normalizeCepDigits(analysisResult.cep_destino),
+      });
+      const payload = response?.data;
+
+      if (!payload?.success) {
+        setMotorError(payload?.error || 'Não foi possível calcular a distância (API ou rede).');
+        return;
+      }
+
+      const km = payload.distance_km;
+      if (km === null || km === undefined || !Number.isFinite(Number(km))) {
+        setMotorError('Resposta da API de distância sem valor de km válido.');
+        return;
+      }
+
+      const resultado = analisarViabilidadeProjeto(
+        analysisResult,
+        viabilityCostConfig,
+        Number(km)
+      );
+
+      if (!resultado.success) {
+        setMotorError(resultado.error || 'Falha ao consolidar a viabilidade.');
+        return;
+      }
+
+      setMotorResult(resultado);
+    } catch (e) {
+      setMotorError(e?.message || 'Erro inesperado ao calcular viabilidade.');
+    } finally {
+      setMotorLoading(false);
     }
   };
 
@@ -307,6 +375,22 @@ export default function HourlyRates() {
                   <dt className="text-slate-500">Custo por km</dt>
                   <dd className="font-medium text-slate-900">{formatBRL(viabilityCostConfig.custoPorKm)}</dd>
                 </div>
+                <div className="flex justify-between gap-2 sm:block">
+                  <dt className="text-slate-500">CEP origem (base)</dt>
+                  <dd className="font-medium text-slate-900">
+                    {viabilityCostConfig.cepOrigem
+                      ? formatCEPInput(viabilityCostConfig.cepOrigem)
+                      : '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2 sm:block">
+                  <dt className="text-slate-500">Limite km bate-volta (ida)</dt>
+                  <dd className="font-medium text-slate-900">
+                    {Number.isFinite(Number(viabilityCostConfig.limiteKmBateVolta))
+                      ? `${Number(viabilityCostConfig.limiteKmBateVolta).toLocaleString('pt-BR')} km`
+                      : '—'}
+                  </dd>
+                </div>
               </dl>
             )}
           </div>
@@ -383,6 +467,105 @@ export default function HourlyRates() {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {analysisResult && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleCalcularViabilidade}
+                disabled={motorLoading || !viabilityCostConfig || viabilityCostLoading}
+                className="px-4 py-2 rounded-md border border-[#1e3a5f] bg-white text-[#1e3a5f] text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {motorLoading ? 'Calculando viabilidade...' : 'Calcular viabilidade (distância + custos)'}
+              </button>
+              <p className="text-xs text-slate-500">
+                Usa o Google Distance Matrix no servidor e aplica as regras de bate-volta ou pernoite conforme o limite configurado.
+              </p>
+            </div>
+          )}
+
+          {motorError && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {motorError}
+            </div>
+          )}
+
+          {motorResult?.success && (
+            <div className="rounded-md border border-slate-200 bg-slate-50/90 p-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-2 justify-between">
+                <h4 className="text-sm font-semibold text-slate-900">Resultado do motor de viabilidade</h4>
+                <span
+                  className={`text-xs font-semibold px-2 py-1 rounded ${
+                    motorResult.viavelPorMargem
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-rose-100 text-rose-800'
+                  }`}
+                >
+                  {motorResult.viavelPorMargem
+                    ? `Viável (margem acima de ${motorResult.margemMinimaConsideradaPct}%)`
+                    : `Atenção: margem igual ou inferior a ${motorResult.margemMinimaConsideradaPct}%`}
+                </span>
+              </div>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <div>
+                  <dt className="text-slate-500">Distância (ida, API)</dt>
+                  <dd className="font-medium text-slate-900">
+                    {motorResult.distanciaKm != null
+                      ? `${motorResult.distanciaKm.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} km`
+                      : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Modo logístico</dt>
+                  <dd className="font-medium text-slate-900">{motorResult.modoLogisticoLabel || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Receita (PDF)</dt>
+                  <dd className="font-medium text-slate-900">{formatBRL(motorResult.receitaPdf)}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Lucro bruto</dt>
+                  <dd className="font-medium text-slate-900">{formatBRL(motorResult.lucroBruto)}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500">Margem sobre o valor do PDF</dt>
+                  <dd className="font-medium text-slate-900">
+                    {motorResult.margemLucroPercentual != null
+                      ? `${motorResult.margemLucroPercentual.toLocaleString('pt-BR', {
+                          maximumFractionDigits: 2,
+                          minimumFractionDigits: 2,
+                        })}%`
+                      : '—'}
+                  </dd>
+                </div>
+              </dl>
+              <div className="border-t border-slate-200 pt-3">
+                <p className="text-xs font-semibold text-slate-700 mb-2">Detalhamento de custos</p>
+                <ul className="text-sm space-y-1 text-slate-800">
+                  <li className="flex justify-between gap-2">
+                    <span>Deslocamento</span>
+                    <span className="font-medium">{formatBRL(motorResult.custos?.deslocamento)}</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span>Hospedagem</span>
+                    <span className="font-medium">{formatBRL(motorResult.custos?.hospedagem)}</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span>Alimentação</span>
+                    <span className="font-medium">{formatBRL(motorResult.custos?.alimentacao)}</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span>Mão de obra</span>
+                    <span className="font-medium">{formatBRL(motorResult.custos?.maoDeObra)}</span>
+                  </li>
+                  <li className="flex justify-between gap-2 pt-2 border-t border-slate-200 font-semibold">
+                    <span>Total</span>
+                    <span>{formatBRL(motorResult.custos?.total)}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           )}
         </div>

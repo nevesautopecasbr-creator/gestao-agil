@@ -198,3 +198,19 @@ export function formatCNPJ(cnpjDigits) {
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12, 14)}`;
 }
 
+/** CEP: só dígitos, no máximo 8. */
+export function normalizeCepDigits(value) {
+  return digitsOnly(value).slice(0, 8);
+}
+
+export function isValidCepBR(value) {
+  return normalizeCepDigits(value).length === 8;
+}
+
+/** Máscara progressiva 00000-000 para input controlado. */
+export function formatCEPInput(value) {
+  const d = digitsOnly(value).slice(0, 8);
+  if (d.length <= 5) return d;
+  return `${d.slice(0, 5)}-${d.slice(5)}`;
+}
+

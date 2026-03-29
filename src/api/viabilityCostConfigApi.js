@@ -13,6 +13,8 @@ export const VIABILITY_COST_CONFIG_ROW_ID = 'viability_cost_cfg_row_000000001';
  * @property {number} custoHospedagemDiaria
  * @property {number} custoAlimentacaoDiaria
  * @property {number} custoPorKm
+ * @property {string} cepOrigem
+ * @property {number} limiteKmBateVolta
  */
 
 function num(v) {
@@ -32,6 +34,8 @@ function mapRowToConfig(row) {
     custoHospedagemDiaria: num(row.custo_hospedagem_diaria),
     custoAlimentacaoDiaria: num(row.custo_alimentacao_diaria),
     custoPorKm: num(row.custo_por_km),
+    cepOrigem: row.cep_origem != null ? String(row.cep_origem) : '',
+    limiteKmBateVolta: num(row.limite_km_bate_volta),
   };
 }
 
@@ -63,6 +67,8 @@ export async function getViabilityCostConfig() {
  * @param {number} params.custoHospedagemDiaria
  * @param {number} params.custoAlimentacaoDiaria
  * @param {number} params.custoPorKm
+ * @param {string} params.cepOrigem
+ * @param {number} params.limiteKmBateVolta
  * @param {string} [params.createdBy]
  * @returns {Promise<{ data: ViabilityCostConfig | null, error: Error | null }>}
  */
@@ -71,6 +77,8 @@ export async function upsertViabilityCostConfig({
   custoHospedagemDiaria,
   custoAlimentacaoDiaria,
   custoPorKm,
+  cepOrigem,
+  limiteKmBateVolta,
   createdBy,
 }) {
   try {
@@ -82,6 +90,8 @@ export async function upsertViabilityCostConfig({
       custo_hospedagem_diaria: custoHospedagemDiaria,
       custo_alimentacao_diaria: custoAlimentacaoDiaria,
       custo_por_km: custoPorKm,
+      cep_origem: cepOrigem != null ? String(cepOrigem).replace(/\D/g, '').slice(0, 8) : '',
+      limite_km_bate_volta: limiteKmBateVolta,
     };
 
     if (createdBy) {

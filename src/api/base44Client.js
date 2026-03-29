@@ -267,6 +267,19 @@ export const base44 = {
         }
         return { data };
       }
+      if (name === 'googleDistanceKm') {
+        const { data, error } = await supabase.functions.invoke(name, { body: payload });
+        if (error) {
+          const detailedMessage = await getFunctionErrorMessage(error, name);
+          return {
+            data: {
+              success: false,
+              error: detailedMessage,
+            },
+          };
+        }
+        return { data };
+      }
 
       // Fallback genérico para outras funções server-side
       const { data, error } = await supabase.functions.invoke(name, { body: payload });
