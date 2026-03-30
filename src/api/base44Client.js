@@ -134,6 +134,50 @@ const getFunctionErrorMessage = async (error, functionName) => {
   return message;
 };
 
+const invokeFunctionWithAnonFallback = async (name, payload) => {
+  const firstTry = await supabase.functions.invoke(name, { body: payload });
+  if (!firstTry.error) return firstTry;
+
+  const status = firstTry.error?.context?.status;
+  if (status !== 401) return firstTry;
+
+  // Em alguns cenários o gateway exige Authorization explícito.
+  // Fazemos retry com anon key para evitar falso 401.
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) return firstTry;
+
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload ?? {}),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        data: null,
+        error: {
+          message: data?.error || data?.message || `Erro ao executar função ${name}`,
+          context: {
+            status: res.status,
+            json: async () => data,
+          },
+        },
+      };
+    }
+
+    return { data, error: null };
+  } catch {
+    return firstTry;
+  }
+};
+
 export const base44 = {
   auth: {
     me: async () => {
@@ -268,7 +312,7 @@ export const base44 = {
         return { data };
       }
       if (name === 'googleDistanceKm') {
-        const { data, error } = await supabase.functions.invoke(name, { body: payload });
+        const { data, error } = await invokeFunctionWithAnonFallback(name, payload);
         if (error) {
           const detailedMessage = await getFunctionErrorMessage(error, name);
           return {
