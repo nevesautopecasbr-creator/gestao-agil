@@ -1,7 +1,8 @@
 /**
  * Google Distance Matrix: distância em km entre dois CEPs (Brasil).
  * Chave: defina o secret GOOGLE_MAPS_API_KEY no projeto Supabase.
- * Deno.env.get('GOOGLE_MAPS_API_KEY') — equivalente server-side ao process.env.
+ * Fallback: se a matriz retornar ZERO_RESULTS com texto do CEP, geocodifica (Brasil)
+ * e tenta novamente com lat,lng — exige Geocoding API habilitada no mesmo projeto Google.
  */
 
 const corsHeaders = {
@@ -17,6 +18,83 @@ function normalizeCepDigits(raw: string): string {
 function cepToQuery(cepDigits: string): string | null {
   if (cepDigits.length !== 8) return null;
   return `${cepDigits.slice(0, 5)}-${cepDigits.slice(5)}, Brasil`;
+}
+
+type MatrixOk = { ok: true; meters: number; via: 'address' | 'coordinates' };
+type MatrixErr = { ok: false; error: string; httpStatus?: number };
+
+async function fetchDistanceMatrixMeters(
+  origins: string,
+  destinations: string,
+  apiKey: string
+): Promise<MatrixOk | MatrixErr> {
+  const url = new URL('https://maps.googleapis.com/maps/api/distancematrix/json');
+  url.searchParams.set('units', 'metric');
+  url.searchParams.set('region', 'br');
+  url.searchParams.set('origins', origins);
+  url.searchParams.set('destinations', destinations);
+  url.searchParams.set('key', apiKey);
+
+  const gRes = await fetch(url.toString());
+  if (!gRes.ok) {
+    return {
+      ok: false,
+      error: `Falha HTTP na API do Google (${gRes.status}).`,
+      httpStatus: 502,
+    };
+  }
+
+  const data = await gRes.json();
+
+  if (data.status !== 'OK') {
+    return {
+      ok: false,
+      error: data.error_message || `Google Distance Matrix: ${data.status}`,
+    };
+  }
+
+  const row = data.rows?.[0];
+  const el = row?.elements?.[0];
+  if (!el) {
+    return { ok: false, error: 'Resposta vazia da API de distância.' };
+  }
+
+  if (el.status !== 'OK') {
+    return { ok: false, error: `Não foi possível calcular a rota: ${el.status}` };
+  }
+
+  const meters = el.distance?.value;
+  if (typeof meters !== 'number' || !Number.isFinite(meters) || meters < 0) {
+    return { ok: false, error: 'Distância retornada inválida.' };
+  }
+
+  return { ok: true, meters, via: 'address' };
+}
+
+async function geocodeBrazilCep(
+  cepDigits: string,
+  apiKey: string
+): Promise<{ lat: number; lng: number } | null> {
+  const address = cepToQuery(cepDigits);
+  if (!address) return null;
+
+  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+  url.searchParams.set('address', address);
+  url.searchParams.set('components', 'country:BR');
+  url.searchParams.set('region', 'br');
+  url.searchParams.set('key', apiKey);
+
+  const res = await fetch(url.toString());
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (data.status !== 'OK' || !data.results?.[0]?.geometry?.location) return null;
+  const loc = data.results[0].geometry.location;
+  if (typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return null;
+  return { lat: loc.lat, lng: loc.lng };
+}
+
+function coordPair(lat: number, lng: number): string {
+  return `${lat},${lng}`;
 }
 
 Deno.serve(async (req) => {
@@ -62,63 +140,65 @@ Deno.serve(async (req) => {
       );
     }
 
-    const url = new URL('https://maps.googleapis.com/maps/api/distancematrix/json');
-    url.searchParams.set('units', 'metric');
-    url.searchParams.set('origins', qOrig);
-    url.searchParams.set('destinations', qDest);
-    url.searchParams.set('key', apiKey);
+    let first = await fetchDistanceMatrixMeters(qOrig, qDest, apiKey);
 
-    const gRes = await fetch(url.toString());
-    if (!gRes.ok) {
+    if (!first.ok && first.httpStatus) {
+      return Response.json({ success: false, error: first.error }, { status: first.httpStatus, headers: corsHeaders });
+    }
+
+    if (first.ok) {
+      const distanceKm = first.meters / 1000;
+      return Response.json(
+        {
+          success: true,
+          distance_km: Math.round(distanceKm * 1000) / 1000,
+          origin_query: qOrig,
+          destination_query: qDest,
+          distance_via: first.via,
+        },
+        { headers: corsHeaders }
+      );
+    }
+
+    // Fallback: ZERO_RESULTS / NOT_FOUND com texto do CEP → geocodificar e usar lat,lng
+    const errText = first.error || '';
+    const needsGeoFallback =
+      errText.includes('ZERO_RESULTS') ||
+      errText.includes('NOT_FOUND');
+
+    if (!needsGeoFallback) {
+      return Response.json({ success: false, error: first.error }, { status: 422, headers: corsHeaders });
+    }
+
+    const [oLoc, dLoc] = await Promise.all([
+      geocodeBrazilCep(origem, apiKey),
+      geocodeBrazilCep(destino, apiKey),
+    ]);
+
+    if (!oLoc || !dLoc) {
       return Response.json(
         {
           success: false,
-          error: `Falha HTTP na API do Google (${gRes.status}).`,
-        },
-        { status: 502, headers: corsHeaders }
-      );
-    }
-
-    const data = await gRes.json();
-
-    if (data.status !== 'OK') {
-      return Response.json(
-        {
-          success: false,
-          error: data.error_message || `Google Distance Matrix: ${data.status}`,
+          error:
+            'Não foi possível localizar um dos CEPs no mapa (geocoding). ' +
+            'Confira os CEPs e habilite a Geocoding API no mesmo projeto da chave.',
         },
         { status: 422, headers: corsHeaders }
       );
     }
 
-    const row = data.rows?.[0];
-    const el = row?.elements?.[0];
-    if (!el) {
-      return Response.json(
-        { success: false, error: 'Resposta vazia da API de distância.' },
-        { status: 422, headers: corsHeaders }
-      );
+    const originsCoord = coordPair(oLoc.lat, oLoc.lng);
+    const destCoord = coordPair(dLoc.lat, dLoc.lng);
+    const second = await fetchDistanceMatrixMeters(originsCoord, destCoord, apiKey);
+
+    if (!second.ok) {
+      if (second.httpStatus) {
+        return Response.json({ success: false, error: second.error }, { status: second.httpStatus, headers: corsHeaders });
+      }
+      return Response.json({ success: false, error: second.error }, { status: 422, headers: corsHeaders });
     }
 
-    if (el.status !== 'OK') {
-      return Response.json(
-        {
-          success: false,
-          error: `Não foi possível calcular a rota: ${el.status}`,
-        },
-        { status: 422, headers: corsHeaders }
-      );
-    }
-
-    const meters = el.distance?.value;
-    if (typeof meters !== 'number' || !Number.isFinite(meters) || meters < 0) {
-      return Response.json(
-        { success: false, error: 'Distância retornada inválida.' },
-        { status: 422, headers: corsHeaders }
-      );
-    }
-
-    const distanceKm = meters / 1000;
+    const distanceKm = second.meters / 1000;
 
     return Response.json(
       {
@@ -126,6 +206,9 @@ Deno.serve(async (req) => {
         distance_km: Math.round(distanceKm * 1000) / 1000,
         origin_query: qOrig,
         destination_query: qDest,
+        distance_via: 'coordinates',
+        origin_coords: oLoc,
+        destination_coords: dLoc,
       },
       { headers: corsHeaders }
     );
