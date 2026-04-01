@@ -7,6 +7,8 @@ import { getViabilityCostConfig } from '@/api/viabilityCostConfigApi';
 import ViabilityCostConfigModal from '@/components/viability/ViabilityCostConfigModal';
 import { analisarViabilidadeProjeto } from '@/lib/viabilityEngine';
 import { normalizeCepDigits, isValidCepBR, formatCEPInput } from '@/lib/validators';
+import { downloadViabilityAnalysisPdf } from '@/components/viability/downloadViabilityAnalysisPdf';
+import { toast } from '@/components/ui/use-toast';
 
 const tabs = [
   { key: 'consulting', label: 'Consultoria de Gestão' },
@@ -40,6 +42,22 @@ function formatBRL(val) {
   return `R$ ${val.toLocaleString('pt-BR')}`;
 }
 
+const DISTANCE_VIA_LABELS = {
+  driving_matrix: 'Rota rodoviária (Google Distance Matrix)',
+  driving_matrix_coords: 'Rota rodoviária (coordenadas dos CEPs)',
+  straight_line_km: 'Linha reta entre os CEPs (aproximação — rota não encontrada)',
+};
+
+function formatLocalidadeCep(cidade, uf, cepDigits) {
+  const loc =
+    cidade && uf ? `${cidade} (${uf})` : cidade ? cidade : uf ? `UF ${uf}` : null;
+  const cepFmt = cepDigits ? formatCEPInput(cepDigits) : null;
+  if (loc && cepFmt) return `${loc} · CEP ${cepFmt}`;
+  if (loc) return loc;
+  if (cepFmt) return `CEP ${cepFmt}`;
+  return 'Não identificado pelo mapa';
+}
+
 export default function HourlyRates() {
   const [activeTab, setActiveTab] = useState(() => readStoredTab() || 'consulting');
   const [filterKm, setFilterKm] = useState('');
@@ -54,6 +72,8 @@ export default function HourlyRates() {
   const [motorLoading, setMotorLoading] = useState(false);
   const [motorError, setMotorError] = useState('');
   const [motorResult, setMotorResult] = useState(null);
+  const [motorDistanceMeta, setMotorDistanceMeta] = useState(null);
+  const [pdfExporting, setPdfExporting] = useState(false);
 
   const { data: currentUser } = useQuery({
     queryKey: ['currentUser'],
@@ -94,6 +114,7 @@ export default function HourlyRates() {
     setAnalysisResult(null);
     setMotorError('');
     setMotorResult(null);
+    setMotorDistanceMeta(null);
     if (!file) {
       setSelectedFile(null);
       return;
@@ -117,6 +138,7 @@ export default function HourlyRates() {
     setAnalysisResult(null);
     setMotorError('');
     setMotorResult(null);
+    setMotorDistanceMeta(null);
 
     try {
       const { file_url } = await base44.integrations.Core.UploadFile({ file: selectedFile });
@@ -138,6 +160,7 @@ export default function HourlyRates() {
   const handleCalcularViabilidade = async () => {
     setMotorError('');
     setMotorResult(null);
+    setMotorDistanceMeta(null);
 
     if (!viabilityCostConfig) {
       setMotorError('Configure os custos de viabilidade (e CEP de origem) antes de calcular.');
@@ -186,6 +209,19 @@ export default function HourlyRates() {
         return;
       }
 
+      setMotorDistanceMeta({
+        distance_via: payload.distance_via,
+        distance_note: payload.distance_note ?? null,
+        rota_encontrada: payload.rota_encontrada !== false,
+        origem_cidade: payload.origem_cidade ?? null,
+        origem_uf: payload.origem_uf ?? null,
+        destino_cidade: payload.destino_cidade ?? null,
+        destino_uf: payload.destino_uf ?? null,
+        origem_endereco_formatado: payload.origem_endereco_formatado ?? null,
+        destino_endereco_formatado: payload.destino_endereco_formatado ?? null,
+        origin_query: payload.origin_query ?? null,
+        destination_query: payload.destination_query ?? null,
+      });
       setMotorResult(resultado);
     } catch (e) {
       setMotorError(e?.message || 'Erro inesperado ao calcular viabilidade.');
@@ -193,6 +229,42 @@ export default function HourlyRates() {
       setMotorLoading(false);
     }
   };
+
+  const handleExportViabilityPdf = async () => {
+    if (!motorResult?.success || !analysisResult || !viabilityCostConfig) {
+      toast({
+        title: 'Dados insuficientes',
+        description: 'Calcule a viabilidade antes de gerar o PDF.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setPdfExporting(true);
+    try {
+      await downloadViabilityAnalysisPdf({
+        analysisResult,
+        viabilityCostConfig,
+        motorResult,
+        distanceMeta: motorDistanceMeta,
+        sourcePdfName: selectedFile?.name || '',
+        generatedBy: currentUser?.email || '',
+      });
+      toast({
+        title: 'PDF gerado',
+        description: 'O download da análise de viabilidade foi iniciado.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: err?.message || 'Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
+  const isStraightLineDistance = motorDistanceMeta?.distance_via === 'straight_line_km';
 
   return (
     <div className="space-y-6">
@@ -496,21 +568,80 @@ export default function HourlyRates() {
             <div className="rounded-md border border-slate-200 bg-slate-50/90 p-4 space-y-3">
               <div className="flex flex-wrap items-center gap-2 justify-between">
                 <h4 className="text-sm font-semibold text-slate-900">Resultado do motor de viabilidade</h4>
-                <span
-                  className={`text-xs font-semibold px-2 py-1 rounded ${
-                    motorResult.viavelPorMargem
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-rose-100 text-rose-800'
-                  }`}
-                >
-                  {motorResult.viavelPorMargem
-                    ? `Viável (margem acima de ${motorResult.margemMinimaConsideradaPct}%)`
-                    : `Atenção: margem igual ou inferior a ${motorResult.margemMinimaConsideradaPct}%`}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportViabilityPdf}
+                    disabled={pdfExporting}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    {pdfExporting ? 'Gerando PDF...' : 'Gerar PDF da análise'}
+                  </button>
+                  <span
+                    className={`text-xs font-semibold px-2 py-1 rounded ${
+                      motorResult.viavelPorMargem
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {motorResult.viavelPorMargem
+                      ? `Viável (margem acima de ${motorResult.margemMinimaConsideradaPct}%)`
+                      : `Atenção: margem igual ou inferior a ${motorResult.margemMinimaConsideradaPct}%`}
+                  </span>
+                </div>
               </div>
+
+              {motorDistanceMeta && (
+                <div className="rounded-md border border-slate-200 bg-white p-3 text-sm space-y-2">
+                  <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Origem e destino</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-slate-500 text-xs mb-0.5">Base (origem)</p>
+                      <p className="font-medium text-slate-900">
+                        {formatLocalidadeCep(
+                          motorDistanceMeta.origem_cidade,
+                          motorDistanceMeta.origem_uf,
+                          viabilityCostConfig?.cepOrigem
+                        )}
+                      </p>
+                      {motorDistanceMeta.origem_endereco_formatado && (
+                        <p className="text-xs text-slate-500 mt-1">{motorDistanceMeta.origem_endereco_formatado}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-slate-500 text-xs mb-0.5">Demanda (destino)</p>
+                      <p className="font-medium text-slate-900">
+                        {formatLocalidadeCep(
+                          motorDistanceMeta.destino_cidade,
+                          motorDistanceMeta.destino_uf,
+                          analysisResult?.cep_destino
+                        )}
+                      </p>
+                      {motorDistanceMeta.destino_endereco_formatado && (
+                        <p className="text-xs text-slate-500 mt-1">{motorDistanceMeta.destino_endereco_formatado}</p>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 pt-1 border-t border-slate-100">
+                    <span className="font-medium text-slate-700">Como a distância foi obtida: </span>
+                    {DISTANCE_VIA_LABELS[motorDistanceMeta.distance_via] || motorDistanceMeta.distance_via || '—'}
+                  </p>
+                </div>
+              )}
+
+              {isStraightLineDistance && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                  <p className="font-semibold">Distância em linha reta</p>
+                  <p className="mt-1">
+                    {motorDistanceMeta?.distance_note ||
+                      'O Google não retornou rota rodoviária entre os CEPs. O cálculo de viabilidade usou a distância em linha reta entre os pontos geocodificados — valor aproximado, em geral menor que a quilometragem real de carro.'}
+                  </p>
+                </div>
+              )}
+
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <div>
-                  <dt className="text-slate-500">Distância (ida, API)</dt>
+                  <dt className="text-slate-500">Distância de ida (km)</dt>
                   <dd className="font-medium text-slate-900">
                     {motorResult.distanciaKm != null
                       ? `${motorResult.distanciaKm.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} km`

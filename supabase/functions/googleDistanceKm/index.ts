@@ -1,11 +1,7 @@
 /**
  * Google Distance Matrix: distância em km entre dois CEPs (Brasil).
- * Chave: secret GOOGLE_MAPS_API_KEY na Edge Function.
- *
- * Estratégia: (1) Distance Matrix com texto do CEP + region=br
- * (2) Geocoding (postal_code BR, depois texto)
- * (3) Distance Matrix com lat,lng
- * (4) Haversine entre coordenadas se a rota ainda falhar (distância em linha reta, aproximada).
+ * Geocoding em paralelo para retornar cidade/UF de origem e destino.
+ * Fallback: Haversine (linha reta) se a rota não existir na Matrix.
  */
 
 const corsHeaders = {
@@ -23,7 +19,63 @@ function cepToQuery(cepDigits: string): string | null {
   return `${cepDigits.slice(0, 5)}-${cepDigits.slice(5)}, Brasil`;
 }
 
-/** Distância em km entre dois pontos (WGS84), linha reta — fallback quando não há rota na Matrix. */
+type GeocodePlace = {
+  lat: number;
+  lng: number;
+  cidade: string | null;
+  uf: string | null;
+  endereco_formatado: string | null;
+};
+
+type AddrComp = { long_name: string; short_name: string; types: string[] };
+
+function extractCityUf(components: AddrComp[]): { cidade: string | null; uf: string | null } {
+  let uf: string | null = null;
+  let cidade: string | null = null;
+  for (const c of components) {
+    if (c.types.includes('administrative_area_level_1')) {
+      uf = c.short_name || null;
+    }
+  }
+  for (const c of components) {
+    if (c.types.includes('locality')) {
+      cidade = c.long_name || null;
+      break;
+    }
+  }
+  if (!cidade) {
+    for (const c of components) {
+      if (c.types.includes('administrative_area_level_2')) {
+        cidade = c.long_name || null;
+        break;
+      }
+    }
+  }
+  return { cidade, uf };
+}
+
+function placeFromGeocodeJson(data: {
+  status?: string;
+  results?: Array<{
+    formatted_address?: string;
+    address_components?: AddrComp[];
+    geometry?: { location?: { lat?: number; lng?: number } };
+  }>;
+}): GeocodePlace | null {
+  if (data.status !== 'OK' || !data.results?.[0]) return null;
+  const r = data.results[0];
+  const loc = r.geometry?.location;
+  if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') return null;
+  const { cidade, uf } = extractCityUf(r.address_components || []);
+  return {
+    lat: loc.lat,
+    lng: loc.lng,
+    cidade,
+    uf,
+    endereco_formatado: r.formatted_address || null,
+  };
+}
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -92,24 +144,7 @@ async function fetchDistanceMatrixMeters(
   return { ok: true, meters };
 }
 
-function locationFromGeocodeData(data: unknown): { lat: number; lng: number } | null {
-  const d = data as {
-    status?: string;
-    results?: Array<{ geometry?: { location?: { lat?: number; lng?: number } } }>;
-  };
-  if (d.status !== 'OK' || !d.results?.[0]?.geometry?.location) return null;
-  const loc = d.results[0].geometry.location;
-  if (typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return null;
-  return { lat: loc.lat, lng: loc.lng };
-}
-
-/**
- * Geocoding em duas tentativas: CEP como postal_code (BR) e depois endereço textual.
- */
-async function geocodeBrazilCep(
-  cepDigits: string,
-  apiKey: string
-): Promise<{ lat: number; lng: number } | null> {
+async function geocodeBrazilCepPlace(cepDigits: string, apiKey: string): Promise<GeocodePlace | null> {
   if (cepDigits.length !== 8) return null;
 
   const urlPostal = new URL('https://maps.googleapis.com/maps/api/geocode/json');
@@ -120,8 +155,8 @@ async function geocodeBrazilCep(
     const res1 = await fetch(urlPostal.toString());
     if (res1.ok) {
       const data1 = await res1.json();
-      const loc1 = locationFromGeocodeData(data1);
-      if (loc1) return loc1;
+      const p1 = placeFromGeocodeJson(data1);
+      if (p1) return p1;
     }
   } catch {
     /* tenta texto */
@@ -140,7 +175,7 @@ async function geocodeBrazilCep(
     const res2 = await fetch(urlAddr.toString());
     if (!res2.ok) return null;
     const data2 = await res2.json();
-    return locationFromGeocodeData(data2);
+    return placeFromGeocodeJson(data2);
   } catch {
     return null;
   }
@@ -148,6 +183,17 @@ async function geocodeBrazilCep(
 
 function coordPair(lat: number, lng: number): string {
   return `${lat},${lng}`;
+}
+
+function localityJson(o: GeocodePlace | null, d: GeocodePlace | null) {
+  return {
+    origem_cidade: o?.cidade ?? null,
+    origem_uf: o?.uf ?? null,
+    origem_endereco_formatado: o?.endereco_formatado ?? null,
+    destino_cidade: d?.cidade ?? null,
+    destino_uf: d?.uf ?? null,
+    destino_endereco_formatado: d?.endereco_formatado ?? null,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -193,11 +239,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    const first = await fetchDistanceMatrixMeters(qOrig, qDest, apiKey);
+    const [first, oPlace, dPlace] = await Promise.all([
+      fetchDistanceMatrixMeters(qOrig, qDest, apiKey),
+      geocodeBrazilCepPlace(origem, apiKey),
+      geocodeBrazilCepPlace(destino, apiKey),
+    ]);
 
     if (!first.ok && first.httpStatus) {
       return Response.json({ success: false, error: first.error }, { status: first.httpStatus, headers: corsHeaders });
     }
+
+    const locFields = localityJson(oPlace, dPlace);
 
     if (first.ok) {
       const distanceKm = first.meters / 1000;
@@ -208,6 +260,10 @@ Deno.serve(async (req) => {
           origin_query: qOrig,
           destination_query: qDest,
           distance_via: 'driving_matrix',
+          rota_encontrada: true,
+          ...locFields,
+          ...(oPlace && { origem_coords: { lat: oPlace.lat, lng: oPlace.lng } }),
+          ...(dPlace && { destino_coords: { lat: dPlace.lat, lng: dPlace.lng } }),
         },
         { headers: corsHeaders }
       );
@@ -219,12 +275,7 @@ Deno.serve(async (req) => {
       return Response.json({ success: false, error: first.error }, { status: 422, headers: corsHeaders });
     }
 
-    const [oLoc, dLoc] = await Promise.all([
-      geocodeBrazilCep(origem, apiKey),
-      geocodeBrazilCep(destino, apiKey),
-    ]);
-
-    if (!oLoc || !dLoc) {
+    if (!oPlace || !dPlace) {
       return Response.json(
         {
           success: false,
@@ -237,8 +288,8 @@ Deno.serve(async (req) => {
     }
 
     const second = await fetchDistanceMatrixMeters(
-      coordPair(oLoc.lat, oLoc.lng),
-      coordPair(dLoc.lat, dLoc.lng),
+      coordPair(oPlace.lat, oPlace.lng),
+      coordPair(dPlace.lat, dPlace.lng),
       apiKey
     );
 
@@ -251,8 +302,10 @@ Deno.serve(async (req) => {
           origin_query: qOrig,
           destination_query: qDest,
           distance_via: 'driving_matrix_coords',
-          origin_coords: oLoc,
-          destination_coords: dLoc,
+          rota_encontrada: true,
+          ...locFields,
+          origem_coords: { lat: oPlace.lat, lng: oPlace.lng },
+          destino_coords: { lat: dPlace.lat, lng: dPlace.lng },
         },
         { headers: corsHeaders }
       );
@@ -262,9 +315,8 @@ Deno.serve(async (req) => {
       return Response.json({ success: false, error: second.error }, { status: second.httpStatus, headers: corsHeaders });
     }
 
-    // Matrix ainda sem rota (ex.: ZERO_RESULTS) — distância em linha reta entre os CEPs geocodificados
     if (isRouteUnavailableError(second.error || '')) {
-      const straightKm = haversineKm(oLoc.lat, oLoc.lng, dLoc.lat, dLoc.lng);
+      const straightKm = haversineKm(oPlace.lat, oPlace.lng, dPlace.lat, dPlace.lng);
       return Response.json(
         {
           success: true,
@@ -272,10 +324,12 @@ Deno.serve(async (req) => {
           origin_query: qOrig,
           destination_query: qDest,
           distance_via: 'straight_line_km',
+          rota_encontrada: false,
           distance_note:
-            'A API não retornou rota de direção; usada distância em linha reta entre os pontos do CEP (aproximação).',
-          origin_coords: oLoc,
-          destination_coords: dLoc,
+            'A API do Google não retornou rota de direção entre os pontos; foi usada a distância em linha reta entre os CEPs geocodificados (aproximação).',
+          ...locFields,
+          origem_coords: { lat: oPlace.lat, lng: oPlace.lng },
+          destino_coords: { lat: dPlace.lat, lng: dPlace.lng },
         },
         { headers: corsHeaders }
       );
