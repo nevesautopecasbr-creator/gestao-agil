@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/api/supabaseClient';
 import { getMainLandingUrl, getTenantContext } from '@/lib/tenant';
+import { setCurrentOrganizationId } from '@/lib/organizationScope';
 
 const TenantContext = createContext(null);
 
@@ -87,6 +88,10 @@ export const TenantProvider = ({ children }) => {
     if (!landingUrl) return;
     window.location.replace(landingUrl);
   }, [tenantError]);
+
+  useEffect(() => {
+    setCurrentOrganizationId(organizationId);
+  }, [organizationId]);
 
   const withTenantFilter = (filters = {}) => {
     if (!organizationId) return { ...filters };

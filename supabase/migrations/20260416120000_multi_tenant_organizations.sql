@@ -162,37 +162,81 @@ BEGIN
   UPDATE public.tax_expense_entry SET organization_id = vanguarda_org_id WHERE organization_id IS NULL;
 END $$;
 
-INSERT INTO public.profiles (id, email, full_name, user_type, consultant_id, client_id, organization_id)
-SELECT
-  u.id,
-  u.email,
-  COALESCE(c.name, cl.company_name, u.email),
-  CASE
-    WHEN c.id IS NOT NULL THEN 'consultant'
-    WHEN cl.id IS NOT NULL THEN 'client'
-    ELSE 'admin'
-  END,
-  c.id,
-  cl.id,
-  org.id
-FROM auth.users u
-LEFT JOIN public.consultant c
-  ON c.email = u.email
-LEFT JOIN public.client cl
-  ON cl.email = u.email
-CROSS JOIN LATERAL (
-  SELECT id
-  FROM public.organizations
-  WHERE slug = 'vanguarda'
-) org
-ON CONFLICT (id) DO UPDATE
-SET
-  email = EXCLUDED.email,
-  full_name = EXCLUDED.full_name,
-  user_type = EXCLUDED.user_type,
-  consultant_id = EXCLUDED.consultant_id,
-  client_id = EXCLUDED.client_id,
-  organization_id = COALESCE(public.profiles.organization_id, EXCLUDED.organization_id);
+-- Reconcilia auth.users -> profiles (compatível com coluna opcional business_name NOT NULL)
+DO $$
+DECLARE
+  has_business_name BOOLEAN;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'profiles'
+      AND column_name = 'business_name'
+  ) INTO has_business_name;
+
+  IF has_business_name THEN
+    INSERT INTO public.profiles (
+      id, email, full_name, business_name, user_type, consultant_id, client_id, organization_id
+    )
+    SELECT
+      u.id,
+      u.email,
+      COALESCE(c.name, cl.company_name, u.email),
+      COALESCE(cl.company_name, c.name, u.email, 'Conta sem nome'),
+      CASE
+        WHEN c.id IS NOT NULL THEN 'consultant'
+        WHEN cl.id IS NOT NULL THEN 'client'
+        ELSE 'admin'
+      END,
+      c.id,
+      cl.id,
+      org.id
+    FROM auth.users u
+    LEFT JOIN public.consultant c ON c.email = u.email
+    LEFT JOIN public.client cl ON cl.email = u.email
+    CROSS JOIN LATERAL (
+      SELECT id FROM public.organizations WHERE slug = 'vanguarda'
+    ) org
+    ON CONFLICT (id) DO UPDATE
+    SET
+      email = EXCLUDED.email,
+      full_name = EXCLUDED.full_name,
+      business_name = COALESCE(NULLIF(TRIM(public.profiles.business_name), ''), EXCLUDED.business_name),
+      user_type = EXCLUDED.user_type,
+      consultant_id = EXCLUDED.consultant_id,
+      client_id = EXCLUDED.client_id,
+      organization_id = COALESCE(public.profiles.organization_id, EXCLUDED.organization_id);
+  ELSE
+    INSERT INTO public.profiles (id, email, full_name, user_type, consultant_id, client_id, organization_id)
+    SELECT
+      u.id,
+      u.email,
+      COALESCE(c.name, cl.company_name, u.email),
+      CASE
+        WHEN c.id IS NOT NULL THEN 'consultant'
+        WHEN cl.id IS NOT NULL THEN 'client'
+        ELSE 'admin'
+      END,
+      c.id,
+      cl.id,
+      org.id
+    FROM auth.users u
+    LEFT JOIN public.consultant c ON c.email = u.email
+    LEFT JOIN public.client cl ON cl.email = u.email
+    CROSS JOIN LATERAL (
+      SELECT id FROM public.organizations WHERE slug = 'vanguarda'
+    ) org
+    ON CONFLICT (id) DO UPDATE
+    SET
+      email = EXCLUDED.email,
+      full_name = EXCLUDED.full_name,
+      user_type = EXCLUDED.user_type,
+      consultant_id = EXCLUDED.consultant_id,
+      client_id = EXCLUDED.client_id,
+      organization_id = COALESCE(public.profiles.organization_id, EXCLUDED.organization_id);
+  END IF;
+END $$;
 
 ALTER TABLE public.profiles
   ALTER COLUMN organization_id SET NOT NULL;
@@ -338,7 +382,16 @@ DECLARE
   resolved_org_slug TEXT;
   c public.consultant%ROWTYPE;
   cl public.client%ROWTYPE;
+  has_business_name BOOLEAN;
 BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'profiles'
+      AND column_name = 'business_name'
+  ) INTO has_business_name;
+
   resolved_org_slug := lower(trim(COALESCE(
     NEW.raw_user_meta_data->>'organization_slug',
     NEW.raw_app_meta_data->>'organization_slug'
@@ -372,28 +425,57 @@ BEGIN
     AND organization_id = resolved_org_id
   LIMIT 1;
 
-  INSERT INTO public.profiles (id, email, full_name, user_type, consultant_id, client_id, organization_id)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(c.name, cl.company_name, NEW.raw_user_meta_data->>'full_name', NEW.email),
-    CASE
-      WHEN c.id IS NOT NULL THEN 'consultant'
-      WHEN cl.id IS NOT NULL THEN 'client'
-      ELSE COALESCE(NEW.raw_user_meta_data->>'user_type', 'admin')
-    END,
-    c.id,
-    cl.id,
-    resolved_org_id
-  )
-  ON CONFLICT (id) DO UPDATE
-  SET
-    email = EXCLUDED.email,
-    full_name = EXCLUDED.full_name,
-    user_type = EXCLUDED.user_type,
-    consultant_id = EXCLUDED.consultant_id,
-    client_id = EXCLUDED.client_id,
-    organization_id = EXCLUDED.organization_id;
+  IF has_business_name THEN
+    INSERT INTO public.profiles (
+      id, email, full_name, business_name, user_type, consultant_id, client_id, organization_id
+    )
+    VALUES (
+      NEW.id,
+      NEW.email,
+      COALESCE(c.name, cl.company_name, NEW.raw_user_meta_data->>'full_name', NEW.email),
+      COALESCE(cl.company_name, c.name, NEW.email, 'Conta sem nome'),
+      CASE
+        WHEN c.id IS NOT NULL THEN 'consultant'
+        WHEN cl.id IS NOT NULL THEN 'client'
+        ELSE COALESCE(NEW.raw_user_meta_data->>'user_type', 'admin')
+      END,
+      c.id,
+      cl.id,
+      resolved_org_id
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET
+      email = EXCLUDED.email,
+      full_name = EXCLUDED.full_name,
+      business_name = COALESCE(NULLIF(TRIM(public.profiles.business_name), ''), EXCLUDED.business_name),
+      user_type = EXCLUDED.user_type,
+      consultant_id = EXCLUDED.consultant_id,
+      client_id = EXCLUDED.client_id,
+      organization_id = EXCLUDED.organization_id;
+  ELSE
+    INSERT INTO public.profiles (id, email, full_name, user_type, consultant_id, client_id, organization_id)
+    VALUES (
+      NEW.id,
+      NEW.email,
+      COALESCE(c.name, cl.company_name, NEW.raw_user_meta_data->>'full_name', NEW.email),
+      CASE
+        WHEN c.id IS NOT NULL THEN 'consultant'
+        WHEN cl.id IS NOT NULL THEN 'client'
+        ELSE COALESCE(NEW.raw_user_meta_data->>'user_type', 'admin')
+      END,
+      c.id,
+      cl.id,
+      resolved_org_id
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET
+      email = EXCLUDED.email,
+      full_name = EXCLUDED.full_name,
+      user_type = EXCLUDED.user_type,
+      consultant_id = EXCLUDED.consultant_id,
+      client_id = EXCLUDED.client_id,
+      organization_id = EXCLUDED.organization_id;
+  END IF;
 
   RETURN NEW;
 END;
