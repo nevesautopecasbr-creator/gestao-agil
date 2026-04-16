@@ -197,7 +197,7 @@ export const base44 = {
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('*, organization:organizations(id, name, slug, custom_domain)')
         .eq('id', user.id)
         .single();
 
@@ -210,6 +210,10 @@ export const base44 = {
           user_type: 'admin',
           consultant_id: null,
           client_id: null,
+          organization_id: null,
+          organization_name: null,
+          organization_slug: null,
+          organization_custom_domain: null,
         };
       }
 
@@ -220,6 +224,10 @@ export const base44 = {
         user_type: profile.user_type ?? 'admin',
         consultant_id: profile.consultant_id,
         client_id: profile.client_id,
+        organization_id: profile.organization_id ?? null,
+        organization_name: profile.organization?.name ?? null,
+        organization_slug: profile.organization?.slug ?? null,
+        organization_custom_domain: profile.organization?.custom_domain ?? null,
       };
     },
 
