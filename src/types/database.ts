@@ -7,7 +7,7 @@ export interface ProfileRow {
   id: string;
   email: string | null;
   full_name: string | null;
-  user_type: 'admin' | 'consultant' | 'client';
+  user_type: 'admin' | 'consultant' | 'client' | 'saas_admin';
   consultant_id: string | null;
   client_id: string | null;
   organization_id: string;

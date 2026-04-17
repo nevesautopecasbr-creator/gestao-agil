@@ -53,7 +53,8 @@ export const AuthProvider = ({ children }) => {
         if (
           organizationId &&
           currentUser?.organization_id &&
-          currentUser.organization_id !== organizationId
+          currentUser.organization_id !== organizationId &&
+          currentUser?.user_type !== 'saas_admin'
         ) {
           setUser(null);
           setIsAuthenticated(false);

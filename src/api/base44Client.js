@@ -205,7 +205,7 @@ const invokeFunctionWithAnonFallback = async (name, payload) => {
 export const base44 = {
   auth: {
     me: async () => {
-      const orgId = requireCurrentOrganizationId();
+      requireCurrentOrganizationId();
       // getUser() sem sessão local dispara AuthSessionMissingError; getSession() só lê o storage.
       const {
         data: { session },
@@ -224,10 +224,11 @@ export const base44 = {
         .from('profiles')
         .select('*, organization:organizations(id, name, slug, custom_domain)')
         .eq('id', user.id)
-        .eq('organization_id', orgId)
-        .single();
+        .maybeSingle();
 
-      if (profileError) {
+      if (profileError) throw profileError;
+
+      if (!profile) {
         // Se não existir profile, ainda assim devolvemos user_type=admin (fallback).
         return {
           id: user.id,
