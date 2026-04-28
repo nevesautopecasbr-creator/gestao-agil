@@ -10,7 +10,8 @@ export default function LoginPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const redirect = searchParams.get('redirect') ? decodeURIComponent(searchParams.get('redirect')) : '/';
+  const requestedRedirect = searchParams.get('redirect') ? decodeURIComponent(searchParams.get('redirect')) : '/Dashboard';
+  const redirect = requestedRedirect === '/' ? '/Dashboard' : requestedRedirect;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

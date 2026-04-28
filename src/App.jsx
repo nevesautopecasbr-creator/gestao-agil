@@ -8,10 +8,12 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import LoginPage from '@/pages/Login';
+import LandingPage from '@/pages/LandingPage';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
 const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
+const internalHomePath = mainPageKey ? `/${mainPageKey}` : '/Dashboard';
 
 const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
@@ -19,22 +21,40 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
 
 /** Evita open redirect: só caminhos relativos na mesma origem. */
 function safePostLoginRedirect(raw) {
-  if (!raw || typeof raw !== 'string') return '/';
+  if (!raw || typeof raw !== 'string') return internalHomePath;
   try {
     const decoded = decodeURIComponent(raw);
+    if (decoded === '/') return internalHomePath;
     if (decoded.startsWith('/') && !decoded.startsWith('//')) return decoded;
   } catch {
     /* ignore */
   }
-  return '/';
+  return internalHomePath;
 }
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, authError, isAuthenticated } = useAuth();
   const location = useLocation();
-  const isLoginPath = location.pathname === '/login';
+  const isPublicPath = location.pathname === '/' || location.pathname === '/login';
 
-  if (isLoadingAuth) {
+  const renderProtectedPage = (pageName, Page) => {
+    if (!isAuthenticated) {
+      const next = `${location.pathname}${location.search}`;
+      return <Navigate to={`/login?redirect=${encodeURIComponent(next)}`} replace />;
+    }
+
+    if (authError?.type === 'user_not_registered') {
+      return <UserNotRegisteredError />;
+    }
+
+    return (
+      <LayoutWrapper currentPageName={pageName}>
+        <Page />
+      </LayoutWrapper>
+    );
+  };
+
+  if (isLoadingAuth && !isPublicPath) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
@@ -42,46 +62,28 @@ const AuthenticatedApp = () => {
     );
   }
 
-  if (authError?.type === 'user_not_registered') {
-    return <UserNotRegisteredError />;
-  }
-
-  if (!isAuthenticated) {
-    if (isLoginPath) {
-      return <LoginPage />;
-    }
-    const next = `${location.pathname}${location.search}`;
-    return (
-      <Navigate
-        to={`/login?redirect=${encodeURIComponent(next)}`}
-        replace
-      />
-    );
-  }
-
-  if (isLoginPath) {
-    const params = new URLSearchParams(location.search);
-    const to = safePostLoginRedirect(params.get('redirect'));
-    return <Navigate to={to} replace />;
-  }
-
   return (
     <Routes>
-      <Route path="/login" element={<Navigate to="/" replace />} />
-      <Route path="/" element={
-        <LayoutWrapper currentPageName={mainPageKey}>
-          <MainPage />
-        </LayoutWrapper>
-      } />
-      {Object.entries(Pages).map(([path, Page]) => (
+      <Route path="/" element={<LandingPage />} />
+      <Route
+        path="/login"
+        element={
+          isAuthenticated
+            ? <Navigate to={safePostLoginRedirect(new URLSearchParams(location.search).get('redirect'))} replace />
+            : <LoginPage />
+        }
+      />
+      <Route
+        path={internalHomePath}
+        element={renderProtectedPage(mainPageKey, MainPage)}
+      />
+      {Object.entries(Pages)
+        .filter(([path]) => `/${path}` !== internalHomePath)
+        .map(([path, Page]) => (
         <Route
           key={path}
           path={`/${path}`}
-          element={
-            <LayoutWrapper currentPageName={path}>
-              <Page />
-            </LayoutWrapper>
-          }
+          element={renderProtectedPage(path, Page)}
         />
       ))}
       <Route path="*" element={<PageNotFound />} />
